@@ -1,4 +1,4 @@
-import { auth } from './firebase'
+﻿import { auth } from './firebase'
 import { mockDeals, mockListings, mockOffers, mockProfile } from '../data/mock-data'
 import type { ApiHealthResponse, Deal, Listing, Offer, Profile } from '../types'
 
@@ -21,15 +21,13 @@ const getAuthHeader = async () => {
   return { Authorization: `Bearer ${token}` }
 }
 
-async function parseJson<T>(response: Response): Promise<T | null> {
+async function parseJson(response: Response): Promise<any | null> {
   try {
-    return (await response.json()) as T
+    return await response.json()
   } catch {
     return null
   }
-}
-
-async function request<T>(path: string, options: RequestInit = {}, requireAuth = false): Promise<T> {
+}async function request<T>(path: string, options: RequestInit = {}, requireAuth = false): Promise<T> {
   const isMock = isMockForced || !apiBaseUrl
   if (isMock) {
     throw new Error('MOCK_MODE')
@@ -41,7 +39,7 @@ async function request<T>(path: string, options: RequestInit = {}, requireAuth =
   if (requireAuth) {
     const authHeaders = await getAuthHeader()
     Object.entries(authHeaders).forEach(([key, value]) => {
-      headers.set(key, value)
+      headers.set(key, String(value))
     })
   }
 
@@ -50,14 +48,21 @@ async function request<T>(path: string, options: RequestInit = {}, requireAuth =
     headers,
   })
 
-  const payload = await parseJson<T>(response)
+  const payload = await parseJson(response)
+
+  // Backend uses envelope { data: ... } on success and { error: { code, message, details? }, timestamp } on failure
   if (!response.ok) {
-    const message = payload && typeof payload === 'object' && 'message' in payload
-      ? String((payload as Record<string, unknown>).message)
-      : 'Request failed'
-    throw new Error(message)
+    const errMsg = payload && payload.error && payload.error.message
+      ? String(payload.error.message)
+      : (payload && (payload.message || payload.error) ? String(payload.message ?? payload.error) : response.statusText)
+    throw new Error(errMsg)
   }
 
+  if (payload && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    return payload.data as T
+  }
+
+  // Fallback: return the raw payload when it doesn't follow the envelope
   return (payload ?? ({} as T))
 }
 
@@ -270,3 +275,9 @@ export const resolveListingStatus = (status: Listing['status']) => {
   if (status === 'Sold') return 'Sold'
   return 'Available'
 }
+
+
+
+
+
+

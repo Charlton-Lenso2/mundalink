@@ -1,24 +1,13 @@
-// MundaLink — Prisma schema
-// Supabase PostgreSQL (PostgreSQL 15+)
-//
-// Decimal safety: money and quantities use Decimal (arbitrary precision).
-// We never use float for financial fields.
-//
-// Statuses are validated at the application layer. Transacted records are never
-// hard-deleted; soft-delete is represented via state transitions.
-
+// MundaLink — Prisma schema (Supabase PostgreSQL, NUMERIC(20,6) for money/quantity).
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
-
-// ---------------------------------------------------------------------------
-// 1. User / profile
-// ---------------------------------------------------------------------------
 
 model Profile {
   id          String    @id @default(cuid())
@@ -29,7 +18,7 @@ model Profile {
   avatarUrl   String?
 
   city      String?
-  region    String? // e.g. province/state
+  region    String?
   country   String? @default("Zimbabwe")
   latitude  Float?
   longitude Float?
@@ -40,21 +29,16 @@ model Profile {
 
   listings    Listing[]
   offers      Offer[]
-  deals       AgreedDeal[]
-  inventory   Inventory[]
-  auditLogs   AuditLog[]
+  dealsBought AgreedDeal[] @relation("DealBuyer")
+  dealsSold   AgreedDeal[] @relation("DealSeller")
 
   @@map("profiles")
 }
 
-// ---------------------------------------------------------------------------
-// 2. Listing
-// ---------------------------------------------------------------------------
-
 model Listing {
   id          String    @id @default(cuid())
   sellerId    String
-  seller       Profile   @relation("Listings", fields: [sellerId], references: [id], onDelete: Cascade)
+  seller      Profile   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   title       String    @db.Text
   description String?   @db.Text
 
@@ -78,22 +62,22 @@ model Listing {
 
   offers      Offer[]
   deals       AgreedDeal[]
+  inventory   Inventory?
 
   @@index([status])
   @@index([category])
   @@index([sellerId])
   @@index([location])
-  @@index([latitude], [longitude])
+  @@index([latitude, longitude])
   @@index([createdAt])
 
   @@map("listings")
 }
 
-
 model Offer {
   id          String    @id @default(cuid())
   buyerId     String
-  buyer       Profile   @relation("Offers", fields: [buyerId], references: [id], onDelete: Cascade)
+  buyer       Profile   @relation(fields: [buyerId], references: [id], onDelete: Cascade)
   listingId   String
   listing     Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
@@ -102,12 +86,14 @@ model Offer {
   message         String?
 
   status      String    @default("PENDING") @db.VarChar(16)
-
   expiresAt   DateTime?
 
-  deal        AgreedDeal?
+  deal        AgreedDeal? @relation("DealOffer")
 
-  @@unique([listingId, buyerId])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([listingId, buyerId])
   @@index([listingId])
   @@index([status])
   @@index([buyerId])
@@ -118,9 +104,8 @@ model Offer {
 
 model AgreedDeal {
   id          String    @id @default(cuid())
-  offerId     String?
-  offer       Offer?    @relation(fields: [offerId], references: [id], onDelete: Cascade)
-
+  offerId     String    @unique
+  offer       Offer     @relation("DealOffer", fields: [offerId], references: [id], onDelete: Restrict)
   listingId   String
   listing     Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
@@ -130,15 +115,15 @@ model AgreedDeal {
   status      String    @default("PENDING") @db.VarChar(16)
 
   buyerId     String
+  buyer       Profile   @relation("DealBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
   sellerId    String
+  seller      Profile   @relation("DealSeller", fields: [sellerId], references: [id], onDelete: Cascade)
 
   executedAt  DateTime?
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  @@unique([offerId])
-  @@unique([listingId, buyerId])
   @@index([status])
   @@index([listingId])
   @@index([buyerId])
@@ -146,4 +131,41 @@ model AgreedDeal {
   @@index([createdAt])
 
   @@map("agreed_deals")
+}
+
+model Inventory {
+  id              String    @id @default(cuid())
+  listingId       String    @unique
+  listing         Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  availableQuantity Decimal @db.Decimal(20, 6)
+
+  entityId        String?
+  entityType      String?   @db.VarChar(32)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("inventory")
+}
+
+model AuditLog {
+  id         String    @id @default(cuid())
+  actorId    String?   @db.VarChar(255)
+  actorType  String?   @db.VarChar(32)
+
+  entityType String
+  entityId   String
+
+  action     String    @db.VarChar(32)
+  payload    String?   @db.Text
+
+  createdAt  DateTime  @default(now())
+
+  @@index([entityType])
+  @@index([entityId])
+  @@index([actorId])
+  @@index([createdAt])
+
+  @@map("audit_logs")
 }

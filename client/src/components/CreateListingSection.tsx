@@ -1,6 +1,4 @@
-﻿import type { Listing } from '../types'
-
-interface CreateListingSectionProps {
+﻿interface CreateListingSectionProps {
   form: {
     title: string
     description: string
@@ -95,4 +93,5 @@ export function CreateListingSection({ form, onFieldChange, onSubmit, submitting
     </section>
   )
 }
+
 

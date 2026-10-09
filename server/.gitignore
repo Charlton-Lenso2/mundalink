@@ -8,6 +8,11 @@ dist/
 .env
 .env.local
 .env.*.local
+secrets/
+**/secrets/*.json
+firebase-service-account*.json
+*-firebase-adminsdk-*.json
+serviceAccountKey*.json
 
 # Generated Prisma
 prisma/generated

@@ -3,7 +3,6 @@
 
 import { getFirebaseAdmin } from "../config/firebase";
 import type { PrismaClient } from "@prisma/client";
-import { prisma } from "./prisma";
 
 export type Role = "SELLER" | "BUYER" | "ADMIN" | "OBSERVER";
 

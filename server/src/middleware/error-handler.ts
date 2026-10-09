@@ -10,6 +10,8 @@ import {
   UnauthorizedError,
   ForbiddenError,
   NotFoundError,
+  ConflictError,
+  BadRequestError,
 } from "./errors";
 
 export interface ErrorResponse {
@@ -124,22 +126,22 @@ function sendError(res: Response, error: HttpError): void {
   res.status(error.statusCode).json(body);
 }
 
-export function badRequestError(message: string, details?: Record<string, unknown>) {
+export function badRequestError(message: string, details?: Record<string, unknown>): never {
   throw new ValidationError(message, details);
 }
 
-export function unauthorizedError(message: string) {
+export function unauthorizedError(message: string): never {
   throw new UnauthorizedError(message);
 }
 
-export function forbiddenError(message: string) {
+export function forbiddenError(message: string): never {
   throw new ForbiddenError(message);
 }
 
-export function notFoundError(message: string) {
+export function notFoundError(message: string): never {
   throw new NotFoundError(message);
 }
 
-export function conflictError(message: string) {
+export function conflictError(message: string): never {
   throw new ConflictError(message);
 }

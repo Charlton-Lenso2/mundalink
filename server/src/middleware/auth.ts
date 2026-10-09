@@ -8,8 +8,9 @@
 // enforce an admin role.
 
 import type { Request, Response, NextFunction } from "express";
-import { getFirebaseAdmin, auth as firebaseAuth } from "../config/firebase";
+import { getFirebaseAdmin } from "../config/firebase";
 import { unauthorizedError, forbiddenError } from "./error-handler";
+import { prisma } from "../modules/prisma";
 
 export interface AuthRequest extends Request {
   firebaseUid?: string;
@@ -65,18 +66,14 @@ export function authenticate(options: AuthOptions = {}): (
 
     // Attach the Prisma client once for the duration of this request.
     if (!req.prisma) {
-      req.prisma = require("../modules/prisma").prisma;
+      req.prisma = prisma;
     }
 
     if (options.requireAdmin) {
-      const { auth } = getFirebaseAdmin();
-      const profile = await auth.getUser(req.firebaseUid).catch(() => null);
-      if (!profile) {
-        forbiddenError("Admin role required but user not found");
-        return;
-      }
-      const role = profile.customClaims?.role;
-      if (role !== "ADMIN") {
+      const profile = await req.prisma.profile
+        .findUnique({ where: { firebaseUid: req.firebaseUid }, select: { role: true } })
+        .catch(() => null);
+      if (!profile || profile.role !== "ADMIN") {
         forbiddenError("Admin role required");
         return;
       }

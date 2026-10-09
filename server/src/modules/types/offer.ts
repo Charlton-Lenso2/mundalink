@@ -23,12 +23,20 @@ export const OfferStatus = {
 
 export type OfferStatus = (typeof OfferStatus)[keyof typeof OfferStatus];
 
+export const OFFER_STATUS: Record<OfferStatus, OfferStatus> = {
+  PENDING: "PENDING",
+  ACCEPTED: "ACCEPTED",
+  DECLINED: "DECLINED",
+  WITHDRAWN: "WITHDRAWN",
+  EXPIRED: "EXPIRED",
+};
+
 export interface CreateOfferInput {
   buyerId: string;
   listingId: string;
   offeredQuantity: Decimal;
   offeredPrice: Decimal;
-  message?: string;
+  message?: string | null;
 }
 
 export interface OfferRecord {
@@ -132,8 +140,8 @@ export function toOfferRecord(o: {
   id: string;
   buyerId: string;
   listingId: string;
-  offeredQuantity: string;
-  offeredPrice: string;
+  offeredQuantity: unknown;
+  offeredPrice: unknown;
   message: string | null;
   status: string;
   createdAt: Date;
@@ -144,8 +152,8 @@ export function toOfferRecord(o: {
     id: o.id,
     buyerId: o.buyerId,
     listingId: o.listingId,
-    offeredQuantity: o.offeredQuantity,
-    offeredPrice: o.offeredPrice,
+    offeredQuantity: String(o.offeredQuantity),
+    offeredPrice: String(o.offeredPrice),
     message: o.message,
     status: o.status as OfferStatus,
     createdAt: o.createdAt,

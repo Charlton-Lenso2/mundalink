@@ -160,8 +160,7 @@ function App() {
   const itemsPerPage = 4
   const pageCount = Math.max(1, Math.ceil(filteredListings.length / itemsPerPage))
   const visibleListings = filteredListings.slice((page - 1) * itemsPerPage, page * itemsPerPage)
-  const selectedListing =
-    listings.find((entry) => entry.id === selectedListingId) ?? visibleListings[0] ?? null
+  const selectedListing = listings.find((entry) => entry.id === selectedListingId) ?? visibleListings[0] ?? null
   const featuredListings = listings.slice(0, 3)
 
   const handleAuthSubmit = async () => {
@@ -581,7 +580,4 @@ function App() {
 }
 
 export default App
-
-
-
 

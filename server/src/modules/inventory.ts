@@ -11,6 +11,8 @@ import type { PrismaClient } from "@prisma/client";
 import { prisma } from "./prisma";
 import { conflictError } from "../middleware/error-handler";
 
+type TxClient = any;
+
 export interface InventoryGuardOptions {
   listingId: string;
   quantity: Decimal;
@@ -35,7 +37,7 @@ export async function guardInventory(
   const { listingId, quantity, prismaClient } = options;
   const p = prismaClient ?? prisma;
 
-  const res = await p.$transaction(async (tx) => {
+  const res = await p.$transaction(async (tx: TxClient) => {
     // 1. Snapshot current availability inside the same transaction we mutate.
     const inv = await tx.inventory.findUnique({
       where: { listingId },

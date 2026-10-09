@@ -35,6 +35,7 @@ export function MarketplaceSection({
   onPageChange,
   selectedListingId,
   onSelectListing,
+  onOfferSubmit,
 }: MarketplaceSectionProps) {
   const selectedListing = listings.find((listing) => listing.id === selectedListingId) ?? listings[0] ?? null
 
@@ -154,4 +155,5 @@ export function MarketplaceSection({
     </section>
   )
 }
+
 

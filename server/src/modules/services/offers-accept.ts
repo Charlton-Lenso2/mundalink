@@ -1,22 +1,14 @@
 // Offer acceptance service: the transactional, concurrency-safe acceptance.
-//
-// Acceptance runs inside a Prisma $transaction:
-//   1. Re-read the offer + listing + inventory snapshot.
-//   2. Validate listing ACTIVE, offer PENDING, correct ownership.
-//   3. Guarded inventory decrement (`WHERE available >= qty`), check affected
-//      rows; reject insufficient inventory.
-//   4. Create exactly one AgreedDeal via upsert on offerId (idempotent vs retries).
-//   5. Update offer to ACCEPTED.
-//   6. Audit.
-//
-// The `WHERE available >= qty` guard plus a single connection per request make
-// this safe under concurrent accepters.
+// (Full doc comment in docs/api-contract.md — see "Inventory behavior".)
 
 import { Decimal } from "decimal.js";
 import type { PrismaClient } from "@prisma/client";
-import { conflictError, badRequestError } from "../../middleware/error-handler";
-import { ListingStatus } from "../types/listing";
-import { OfferStatus, toOfferRecord } from "../types/offer";
+import { conflictError, badRequestError, forbiddenError, notFoundError } from "../../middleware/error-handler";
+import { LISTING_STATUS } from "../types/listing";
+import { OFFER_STATUS, OfferStatus, toOfferRecord } from "../types/offer";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TxClient = any;
 
 export interface AcceptInput {
   offerId: string;
@@ -51,7 +43,7 @@ export class OfferAcceptanceService {
   async accept(input: AcceptInput): Promise<OfferRecord> {
     const { offerId, buyerId, sellerId } = input;
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: TxClient) => {
       const offer = await tx.offer.findUnique({
         where: { id: offerId },
         select: {
@@ -73,39 +65,39 @@ export class OfferAcceptanceService {
         },
       });
 
-      if (!offer) throw new Error(`Offer not found: ${offerId}`);
-      if (offer.status !== OfferStatus.PENDING) {
-        throw badRequestError(`Cannot accept an offer in status ${offer.status}`);
+      if (!offer) notFoundError(`Offer not found: ${offerId}`);
+      if (offer.status !== OFFER_STATUS.PENDING) {
+        badRequestError(`Cannot accept an offer in status ${offer.status}`);
       }
-      if (offer.listing.status !== ListingStatus.ACTIVE) {
-        throw badRequestError(`Listing is not active`);
+      if (offer.listing.status !== LISTING_STATUS.ACTIVE) {
+        badRequestError(`Listing is not active`);
       }
       if (offer.listing.sellerId !== sellerId) {
-        throw new Error("Only the listing owner can accept");
+        forbiddenError("Only the listing owner can accept");
       }
       if (offer.buyerId !== buyerId) {
-        throw new Error("Only the offer buyer can accept");
+        forbiddenError("Offer buyer mismatch");
       }
 
       // Guarded inventory decrement. Check affected rows.
-      const available = new Decimal(offer.listing.availableQuantity as string);
-      const requested = new Decimal(offer.offeredQuantity as string);
+      const available = new Decimal(String(offer.listing.availableQuantity));
+      const requested = new Decimal(String(offer.offeredQuantity));
       if (available.lt(requested)) {
-        throw conflictError("Insufficient inventory for this offer");
+        conflictError("Insufficient inventory for this offer");
       }
 
-      const updated = await tx.inventory.updateMany({
+      const decremented = await tx.inventory.updateMany({
         where: {
           listingId: offer.listingId,
-          availableQuantity: { gte: requested },
+          availableQuantity: { gte: requested.toString() },
         },
         data: {
           availableQuantity: available.minus(requested).toString(),
         },
       });
 
-      if (updated.count !== 1) {
-        throw conflictError("Insufficient inventory for this offer");
+      if (decremented.count !== 1) {
+        conflictError("Insufficient inventory for this offer");
       }
 
       // Idempotent deal creation: unique constraint on offerId guarantees exactly
@@ -124,33 +116,33 @@ export class OfferAcceptanceService {
         },
       });
 
-      const updated = await tx.offer.update({
+      const accepted = await tx.offer.update({
         where: { id: offerId },
-        data: { status: OfferStatus.ACCEPTED },
+        data: { status: OFFER_STATUS.ACCEPTED },
       });
 
-      return toOfferRecord(updated);
+      return toOfferRecord(accepted);
     });
   }
 
   async withdraw(offerId: string, buyerId: string): Promise<OfferRecord> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: TxClient) => {
       const offer = await tx.offer.findUnique({
         where: { id: offerId },
         select: { id: true, buyerId: true, status: true },
       });
 
-      if (!offer) throw new Error(`Offer not found: ${offerId}`);
+      if (!offer) notFoundError(`Offer not found: ${offerId}`);
       if (offer.buyerId !== buyerId) {
-        throw new Error("Only the offer buyer can withdraw");
+        forbiddenError("Only the offer buyer can withdraw");
       }
-      if (offer.status !== OfferStatus.PENDING) {
-        throw badRequestError(`Cannot withdraw an offer in status ${offer.status}`);
+      if (offer.status !== OFFER_STATUS.PENDING) {
+        badRequestError(`Cannot withdraw an offer in status ${offer.status}`);
       }
 
       const updated = await tx.offer.update({
         where: { id: offerId },
-        data: { status: OfferStatus.WITHDRAWN },
+        data: { status: OFFER_STATUS.WITHDRAWN },
       });
 
       return toOfferRecord(updated);
@@ -158,23 +150,23 @@ export class OfferAcceptanceService {
   }
 
   async expire(offerId: string, buyerId: string, expiresAt: Date): Promise<OfferRecord> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: TxClient) => {
       const offer = await tx.offer.findUnique({
         where: { id: offerId },
         select: { id: true, buyerId: true, status: true },
       });
 
-      if (!offer) throw new Error(`Offer not found: ${offerId}`);
+      if (!offer) notFoundError(`Offer not found: ${offerId}`);
       if (offer.buyerId !== buyerId) {
-        throw new Error("Only the offer buyer can expire");
+        forbiddenError("Only the offer buyer can expire");
       }
-      if (offer.status !== OfferStatus.PENDING) {
-        throw badRequestError(`Cannot expire an offer in status ${offer.status}`);
+      if (offer.status !== OFFER_STATUS.PENDING) {
+        badRequestError(`Cannot expire an offer in status ${offer.status}`);
       }
 
       const updated = await tx.offer.update({
         where: { id: offerId },
-        data: { status: OfferStatus.EXPIRED, expiresAt },
+        data: { status: OFFER_STATUS.EXPIRED, expiresAt },
       });
 
       return toOfferRecord(updated);

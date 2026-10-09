@@ -12,19 +12,26 @@ import { Decimal } from "decimal.js";
 
 export type ListingStatus = "DRAFT" | "ACTIVE" | "REJECTED" | "SOLD";
 
+export const LISTING_STATUS: Record<ListingStatus, ListingStatus> = {
+  DRAFT: "DRAFT",
+  ACTIVE: "ACTIVE",
+  REJECTED: "REJECTED",
+  SOLD: "SOLD",
+};
+
 export interface CreateListingInput {
   sellerId: string;
   title: string;
-  description?: string;
-  category?: string;
-  commodity?: string;
+  description?: string | null;
+  category?: string | null;
+  commodity?: string | null;
   quantity: Decimal;
-  unit?: string;
+  unit?: string | null;
   pricePerUnit: Decimal;
   currency?: string;
-  location?: string;
-  latitude?: number;
-  longitude?: number;
+  location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   availableQuantity: Decimal;
 }
 
@@ -72,15 +79,15 @@ export function toListingRecord(
     description: string | null;
     category: string | null;
     commodity: string | null;
-    quantity: string;
+    quantity: unknown;
     unit: string | null;
-    pricePerUnit: string;
+    pricePerUnit: unknown;
     currency: string;
     location: string | null;
     latitude: number | null;
     longitude: number | null;
     status: string;
-    availableQuantity: string;
+    availableQuantity: unknown;
     createdAt: Date;
     updatedAt: Date;
   }
@@ -92,15 +99,15 @@ export function toListingRecord(
     description: l.description,
     category: l.category,
     commodity: l.commodity,
-    quantity: l.quantity,
+    quantity: String(l.quantity),
     unit: l.unit,
-    pricePerUnit: l.pricePerUnit,
+    pricePerUnit: String(l.pricePerUnit),
     currency: l.currency,
     location: l.location,
     latitude: l.latitude,
     longitude: l.longitude,
     status: l.status as ListingStatus,
-    availableQuantity: l.availableQuantity,
+    availableQuantity: String(l.availableQuantity),
     createdAt: l.createdAt,
     updatedAt: l.updatedAt,
   };

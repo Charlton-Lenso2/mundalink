@@ -13,7 +13,7 @@ import { PrismaClient } from "@prisma/client";
 
 export type Prisma = PrismaClient;
 
-let globalPrisma: PrismaClient;
+let cached: PrismaClient | undefined;
 
 function createPrismaClient(): PrismaClient {
   const databaseUrl = process.env.DATABASE_URL;
@@ -30,28 +30,41 @@ function createPrismaClient(): PrismaClient {
 
   // Returning a single shared instance avoids exhausting connections under load
   // and keeps PrismaClient from re-initialising per request.
-  if (globalPrisma) {
-    return globalPrisma;
+  if (cached) {
+    return cached;
   }
 
-  // `new PrismaClient({ datasources: { db: { url: databaseUrl } } })` pins the
-  // pool to the pooled URL and avoids the DIRECT_URL being used as a fallback.
-  globalPrisma = new PrismaClient({
-    datasources: {
-      db: { url: databaseUrl },
-    },
-  });
+  cached = new PrismaClient();
 
-  return globalPrisma;
+  return cached;
 }
 
-export const prisma = createPrismaClient();
+function ensurePrismaClient(): PrismaClient {
+  if (!cached) {
+    cached = createPrismaClient();
+  }
+  return cached;
+}
+
+// Lazily-initialised proxy: importing this module never throws, so unit tests
+// that inject their own client (or mock this module) run without
+// DATABASE_URL/DIRECT_URL. The first real property access creates the client
+// and surfaces the configuration error at that point, not at import time.
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = ensurePrismaClient() as unknown as Record<string | symbol, unknown>;
+    const value = client[prop];
+    if (typeof value === "function") {
+      return (value as (...args: never[]) => unknown).bind(client);
+    }
+    return value;
+  },
+});
 
 export function resetPrismaForTesting(): void {
-  if (globalPrisma) {
-    void globalPrisma.$disconnect();
-    globalPrisma = undefined;
+  if (cached) {
+    void cached.$disconnect();
+    cached = undefined;
   }
-  globalPrisma = createPrismaClient();
 }
 

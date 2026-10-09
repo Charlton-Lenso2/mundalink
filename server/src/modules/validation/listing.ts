@@ -86,6 +86,35 @@ export class ListingValidation {
     if (body.pricePerUnit !== undefined) {
       result.pricePerUnit = this.nonNegativeDecimal(
         { pricePerUnit: body.pricePerUnit },
+        "pricePerUnit"
+      );
+    }
+    if (body.quantity !== undefined) {
+      result.quantity = this.positiveDecimal({ quantity: body.quantity }, "quantity");
+    }
+    if (typeof body.currency === "string") {
+      const c = body.currency.toUpperCase();
+      if (!/^[A-Z]{3}$/.test(c)) throw badRequestError("currency must be 3 uppercase letters");
+      result.currency = c;
+    }
+    if (typeof body.location === "string") result.location = body.location;
+    if (typeof body.latitude === "number") result.latitude = body.latitude;
+    if (typeof body.longitude === "number") result.longitude = body.longitude;
+    if (body.availableQuantity !== undefined) {
+      result.availableQuantity = this.nonNegativeDecimal(
+        { availableQuantity: body.availableQuantity },
+        "availableQuantity"
+      );
+    }
+    if (typeof body.status === "string") {
+      const status = body.status.toUpperCase();
+      if (!["DRAFT", "ACTIVE", "REJECTED", "SOLD"].includes(status)) {
+        throw badRequestError("invalid listing status");
+      }
+      result.status = status as import("../types/listing").ListingStatus;
+    }
+    return result;
+  }
 
   private static nonEmptyString(
     body: Record<string, unknown>,
@@ -121,15 +150,29 @@ export class ListingValidation {
   private static positiveDecimal(body: Record<string, unknown>, key: string): Decimal {
     const value = body[key];
     if (value === undefined || value === null) {
-      throw badRequestError(`${key} is required and must be a positive decimal`);
+      badRequestError(`${key} is required and must be a positive decimal`);
     }
     if (typeof value === "number" && Number.isFinite(value)) {
-      return new Decimal(value);
+      const parsed = new Decimal(value);
+      if (parsed.lte(0)) {
+        badRequestError(`${key} must be greater than zero`);
+      }
+      return parsed;
     }
-    if (typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim())) {
-      return new Decimal(value.trim());
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      let parsed: Decimal;
+      try {
+        parsed = new Decimal(trimmed);
+      } catch {
+        badRequestError(`${key} must be a positive decimal number`);
+      }
+      if ((parsed as Decimal).lte(0)) {
+        badRequestError(`${key} must be greater than zero`);
+      }
+      return parsed as Decimal;
     }
-    throw badRequestError(`${key} must be a positive decimal number`);
+    badRequestError(`${key} must be a positive decimal number`);
   }
 
   private static nonNegativeDecimal(body: Record<string, unknown>, key: string): Decimal {
@@ -151,36 +194,5 @@ export class ListingValidation {
     if (value === undefined || value === null) return null;
     if (typeof value === "number" && Number.isFinite(value)) return value;
     throw badRequestError(`${key} must be a number`);
-  }
-}
-
-        "pricePerUnit"
-      );
-    }
-    if (body.quantity !== undefined) {
-      result.quantity = this.positiveDecimal({ quantity: body.quantity }, "quantity");
-    }
-    if (typeof body.currency === "string") {
-      const c = body.currency.toUpperCase();
-      if (!/^[A-Z]{3}$/.test(c)) throw badRequestError("currency must be 3 uppercase letters");
-      result.currency = c;
-    }
-    if (typeof body.location === "string") result.location = body.location;
-    if (body.latitude !== undefined) result.latitude = body.latitude;
-    if (body.longitude !== undefined) result.longitude = body.longitude;
-    if (body.availableQuantity !== undefined) {
-      result.availableQuantity = this.nonNegativeDecimal(
-        { availableQuantity: body.availableQuantity },
-        "availableQuantity"
-      );
-    }
-    if (typeof body.status === "string") {
-      const status = body.status.toUpperCase();
-      if (!["DRAFT", "ACTIVE", "REJECTED", "SOLD"].includes(status)) {
-        throw badRequestError("invalid listing status");
-      }
-      result.status = status as import("../types/listing").ListingStatus;
-    }
-    return result;
   }
 }

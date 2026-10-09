@@ -4,11 +4,13 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { ListingRecord, toListingRecord } from "../types/listing";
+import { auditListingCreated } from "../auditLog";
 
 export interface ListingFilters {
   category?: string;
   location?: string;
   status?: import("../types/listing").ListingStatus;
+  search?: string;
 }
 
 export interface ListingPage {
@@ -50,7 +52,14 @@ export class PrismaListingService implements ListingService {
 
     if (filters?.category) where.category = filters.category;
     if (filters?.status) where.status = filters.status;
-    if (filters?.location) where.location = { contains: filters.location };
+    if (filters?.location) where.location = { contains: filters.location, mode: "insensitive" };
+    if (filters?.search) {
+      where.OR = [
+        { title: { contains: filters.search, mode: "insensitive" } },
+        { description: { contains: filters.search, mode: "insensitive" } },
+        { commodity: { contains: filters.search, mode: "insensitive" } },
+      ];
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
@@ -102,7 +111,6 @@ export class PrismaListingService implements ListingService {
     });
 
     // Audit via the shared singleton.
-    const { auditListingCreated } = await import("../modules/auditLog");
     await auditListingCreated(listing.id, listing.sellerId, {
       quantity: listing.quantity,
       pricePerUnit: listing.pricePerUnit,

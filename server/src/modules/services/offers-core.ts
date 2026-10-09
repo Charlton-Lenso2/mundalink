@@ -4,15 +4,16 @@
 
 import { Decimal } from "decimal.js";
 import type { PrismaClient } from "@prisma/client";
-import { ListingStatus } from "../types/listing";
-import { OfferStatus, toOfferRecord } from "../types/offer";
+import { LISTING_STATUS } from "../types/listing";
+import { OFFER_STATUS, toOfferRecord } from "../types/offer";
+import { badRequestError, forbiddenError, notFoundError } from "../../middleware/error-handler";
 
 export interface CreateOfferInput {
   buyerId: string;
   listingId: string;
   offeredQuantity: Decimal;
   offeredPrice: Decimal;
-  message?: string;
+  message?: string | null;
 }
 
 export interface OfferService {
@@ -24,7 +25,7 @@ export class PrismaOfferService {
   constructor(private readonly prisma: PrismaClient) {}
 
   async findMyOffers(authenticatedUid: string): Promise<import("../types/offer").OfferRecord[]> {
-    return this.prisma.offer.findMany({
+    const rows = await this.prisma.offer.findMany({
       where: {
         OR: [
           { buyerId: authenticatedUid },
@@ -32,8 +33,8 @@ export class PrismaOfferService {
         ],
       },
       orderBy: { createdAt: "desc" },
-      include: { listing: { select: { id: true, title: true, status: true } } },
     });
+    return rows.map(toOfferRecord);
   }
 
   async create(input: CreateOfferInput): Promise<import("../types/offer").OfferRecord> {
@@ -46,29 +47,29 @@ export class PrismaOfferService {
     });
 
     if (!listing) {
-      throw new Error(`Listing not found: ${listingId}`);
+      notFoundError(`Listing not found: ${listingId}`);
     }
     if (listing.sellerId === buyerId) {
-      throw new Error("A buyer cannot submit an offer against their own listing");
+      forbiddenError("A buyer cannot submit an offer against their own listing");
     }
-    if (listing.status !== ListingStatus.ACTIVE) {
-      throw new Error(`Cannot offer on a listing with status ${listing.status}`);
+    if (listing.status !== LISTING_STATUS.ACTIVE) {
+      badRequestError(`Cannot offer on a listing with status ${listing.status}`);
     }
     if (offeredQuantity.lte(new Decimal(0))) {
-      throw new Error("offeredQuantity must be positive");
+      badRequestError("offeredQuantity must be positive");
     }
     if (offeredPrice.lt(new Decimal(0))) {
-      throw new Error("offeredPrice must be non-negative");
+      badRequestError("offeredPrice must be non-negative");
     }
 
     // Enforce "one open offer per buyer per listing".
-    const existing = await this.prisma.offer.findUnique({
-      where: { listingId_buyerId: { listingId, buyerId } },
-      select: { status: true },
+    const existing = await this.prisma.offer.findFirst({
+      where: { listingId, buyerId, status: OFFER_STATUS.PENDING },
+      select: { id: true },
     });
 
-    if (existing && existing.status !== OfferStatus.WITHDRAWN) {
-      throw new Error("You already hold an open offer on this listing");
+    if (existing) {
+      badRequestError("You already hold an open offer on this listing");
     }
 
     const offer = await this.prisma.offer.create({
@@ -78,7 +79,7 @@ export class PrismaOfferService {
         offeredQuantity: offeredQuantity.toString(),
         offeredPrice: offeredPrice.toString(),
         message: message ?? null,
-        status: OfferStatus.PENDING,
+        status: OFFER_STATUS.PENDING,
       },
     });
 

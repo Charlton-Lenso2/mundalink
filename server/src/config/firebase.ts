@@ -50,14 +50,8 @@ export function initializeFirebaseAdmin(): void {
     );
   }
 
-  // Disable credential caching so each token verification goes to Firebase Auth
-  // (appropriate for a high-volume token-verification workload). If you are on a
-  // high-throughput service with a warmer cache, set FIREBASE_DISABLE_CACHE=true.
-  const disableCache = process.env.FIREBASE_DISABLE_CACHE !== "false";
-
   adminApp = initializeApp({
     credential: cert(account),
-    cacheableUserTokens: !disableCache,
   });
 
   auth = getAuth(adminApp);

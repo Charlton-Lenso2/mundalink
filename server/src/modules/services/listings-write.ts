@@ -5,33 +5,46 @@
 import { Decimal } from "decimal.js";
 import type { PrismaClient } from "@prisma/client";
 import { ListingValidation } from "../validation/listing";
-import { auditListingCreated } from "../modules/auditLog";
+import { auditListingCreated } from "../auditLog";
 import { toListingRecord } from "../types/listing";
+import { forbiddenError, notFoundError } from "../../middleware/error-handler";
 
 export class ListingWriteService {
   static async create(
     input: import("../types/listing").CreateListingInput,
     prismaClient: PrismaClient
   ): Promise<import("../types/listing").ListingRecord> {
-    // The authenticated seller is the only trusted source for ownerId. The
-    // route must validate `sellerId` in the body against `req.firebaseUid`.
-    const listing = await prismaClient.listing.create({
-      data: {
-        sellerId: input.sellerId,
-        title: input.title,
-        description: input.description ?? null,
-        category: input.category ?? null,
-        commodity: input.commodity ?? null,
-        quantity: input.quantity.toString(),
-        unit: input.unit ?? null,
-        pricePerUnit: input.pricePerUnit.toString(),
-        currency: input.currency,
-        location: input.location ?? null,
-        latitude: input.latitude ?? null,
-        longitude: input.longitude ?? null,
-        availableQuantity: input.availableQuantity.toString(),
-        status: "DRAFT",
-      },
+    // Create listing + inventory row atomically so every listing always has
+    // exactly one inventory record. Inventory is the guarded source of truth
+    // for availability; Listing.availableQuantity mirrors it for fast reads.
+    const listing = await prismaClient.$transaction(async (tx) => {
+      const created = await tx.listing.create({
+        data: {
+          sellerId: input.sellerId,
+          title: input.title,
+          description: input.description ?? null,
+          category: input.category ?? null,
+          commodity: input.commodity ?? null,
+          quantity: input.quantity.toString(),
+          unit: input.unit ?? null,
+          pricePerUnit: input.pricePerUnit.toString(),
+          currency: input.currency ?? "USD",
+          location: input.location ?? null,
+          latitude: input.latitude ?? null,
+          longitude: input.longitude ?? null,
+          availableQuantity: input.availableQuantity.toString(),
+          status: "DRAFT",
+        },
+      });
+
+      await tx.inventory.create({
+        data: {
+          listingId: created.id,
+          availableQuantity: input.availableQuantity.toString(),
+        },
+      });
+
+      return created;
     });
 
     await auditListingCreated(listing.id, listing.sellerId, {
@@ -55,16 +68,16 @@ export class ListingWriteService {
     });
 
     if (!existing) {
-      throw new Error(`Listing not found: ${id}`);
+      notFoundError(`Listing not found: ${id}`);
     }
     if (existing.sellerId !== ownerId) {
-      throw new Error("Forbidden");
+      forbiddenError("Only the listing owner can update this listing");
     }
 
-    const listing = await prismaClient.listing.update({
-      where: { id },
+    const listing = await prismaClient.$transaction(async (tx) => {
+      const updated = await tx.listing.update({
+        where: { id },
       data: {
-        ...(input.title !== undefined && { title: input.title }),
         ...(input.description !== undefined && { description: input.description ?? null }),
         ...(input.category !== undefined && input.category !== null && {
           category: input.category ?? null,
@@ -88,6 +101,8 @@ export class ListingWriteService {
         }),
         ...(input.status !== undefined && { status: input.status }),
       },
+    });
+      return updated;
     });
 
     return toListingRecord(listing);

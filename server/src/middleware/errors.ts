@@ -53,3 +53,10 @@ export class ConflictError extends HttpError {
   }
 }
 
+export class UnprocessableError extends HttpError {
+  constructor(message = "Unprocessable entity", details?: Record<string, unknown>) {
+    super(422, message, details);
+    this.name = "UnprocessableError";
+  }
+}
+
