@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Firebase Admin credentials
+service-account*.json
+firebase-adminsdk*.json
+*-firebase-adminsdk-*.json
+secrets/
+**/secrets/
+
+# Build outputs
+dist/
+build/
+coverage/
+.next/
+out/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Local databases and temporary data
+*.sqlite
+*.sqlite3
+*.db
+tmp/
+temp/
+
+# Editor and operating system files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test and tooling caches
+.cache/
+.eslintcache/
+.vite/
+playwright-report/
+test-results/
+
+# Local-only files
+*.local

@@ -1,0 +1,149 @@
+// MundaLink — Prisma schema
+// Supabase PostgreSQL (PostgreSQL 15+)
+//
+// Decimal safety: money and quantities use Decimal (arbitrary precision).
+// We never use float for financial fields.
+//
+// Statuses are validated at the application layer. Transacted records are never
+// hard-deleted; soft-delete is represented via state transitions.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// 1. User / profile
+// ---------------------------------------------------------------------------
+
+model Profile {
+  id          String    @id @default(cuid())
+  firebaseUid String    @unique @db.VarChar(255)
+  displayName String?
+  email       String?
+  phone       String?
+  avatarUrl   String?
+
+  city      String?
+  region    String? // e.g. province/state
+  country   String? @default("Zimbabwe")
+  latitude  Float?
+  longitude Float?
+
+  role        String    @default("OBSERVER") @db.VarChar(32)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  listings    Listing[]
+  offers      Offer[]
+  deals       AgreedDeal[]
+  inventory   Inventory[]
+  auditLogs   AuditLog[]
+
+  @@map("profiles")
+}
+
+// ---------------------------------------------------------------------------
+// 2. Listing
+// ---------------------------------------------------------------------------
+
+model Listing {
+  id          String    @id @default(cuid())
+  sellerId    String
+  seller       Profile   @relation("Listings", fields: [sellerId], references: [id], onDelete: Cascade)
+  title       String    @db.Text
+  description String?   @db.Text
+
+  category    String?   @db.VarChar(128)
+  commodity   String?   @db.VarChar(128)
+  quantity    Decimal   @db.Decimal(20, 6)
+  unit        String?   @db.VarChar(32)
+
+  pricePerUnit Decimal   @db.Decimal(20, 6)
+  currency     String    @default("USD") @db.VarChar(3)
+
+  location    String?
+  latitude    Float?
+  longitude   Float?
+
+  status      String    @default("DRAFT") @db.VarChar(16)
+  availableQuantity Decimal @db.Decimal(20, 6)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  offers      Offer[]
+  deals       AgreedDeal[]
+
+  @@index([status])
+  @@index([category])
+  @@index([sellerId])
+  @@index([location])
+  @@index([latitude], [longitude])
+  @@index([createdAt])
+
+  @@map("listings")
+}
+
+
+model Offer {
+  id          String    @id @default(cuid())
+  buyerId     String
+  buyer       Profile   @relation("Offers", fields: [buyerId], references: [id], onDelete: Cascade)
+  listingId   String
+  listing     Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  offeredQuantity Decimal @db.Decimal(20, 6)
+  offeredPrice    Decimal @db.Decimal(20, 6)
+  message         String?
+
+  status      String    @default("PENDING") @db.VarChar(16)
+
+  expiresAt   DateTime?
+
+  deal        AgreedDeal?
+
+  @@unique([listingId, buyerId])
+  @@index([listingId])
+  @@index([status])
+  @@index([buyerId])
+  @@index([createdAt])
+
+  @@map("offers")
+}
+
+model AgreedDeal {
+  id          String    @id @default(cuid())
+  offerId     String?
+  offer       Offer?    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  listingId   String
+  listing     Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  agreedQuantity Decimal  @db.Decimal(20, 6)
+  agreedPrice    Decimal  @db.Decimal(20, 6)
+
+  status      String    @default("PENDING") @db.VarChar(16)
+
+  buyerId     String
+  sellerId    String
+
+  executedAt  DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([offerId])
+  @@unique([listingId, buyerId])
+  @@index([status])
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([createdAt])
+
+  @@map("agreed_deals")
+}
