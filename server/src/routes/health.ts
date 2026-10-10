@@ -1,22 +1,21 @@
 // Health route: liveness + DB connectivity reported separately.
 
 import type { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../modules/prisma";
 
 export async function healthHandler(_req: Request, res: Response): Promise<void> {
   let db: "up" | "down" = "down";
   let dbError: string | undefined;
   try {
-    const client = new PrismaClient();
-    try {
-      await client.$queryRaw`SELECT 1`;
-      db = "up";
-    } finally {
-      await client.$disconnect();
-    }
+    await prisma.$queryRaw`SELECT 1`;
+    db = "up";
   } catch (err) {
     db = "down";
-    dbError = err instanceof Error ? err.message : "unknown database error";
+    // Never leak raw driver messages (they can contain host/user fragments).
+    // Log full error server-side, return a generic reason to clients.
+    // eslint-disable-next-line no-console
+    console.error(`[health] database check failed: ${err instanceof Error ? err.message : String(err)}`);
+    dbError = "database unreachable";
   }
   const ok = db === "up";
   res.status(ok ? 200 : 503).json({

@@ -8,6 +8,13 @@ import { guardInventory } from "../src/modules/inventory";
 
 function fakePrisma(initialAvailable: string) {
   let available = new Decimal(initialAvailable);
+  const decrementOf = (data: unknown): Decimal => {
+    if (typeof data === "object" && data !== null && "decrement" in data) {
+      return new Decimal(String((data as { decrement: unknown }).decrement));
+    }
+    // Legacy absolute-set shape (kept for backwards-compat with older doubles).
+    return available.minus(new Decimal(String(data)));
+  };
   return {
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
@@ -15,15 +22,18 @@ function fakePrisma(initialAvailable: string) {
           findUnique: async () => ({ availableQuantity: available.toString() }),
           updateMany: async (args: {
             where: { availableQuantity?: { gte?: Decimal | string } };
-            data: { availableQuantity: string };
+            data: { availableQuantity: unknown };
           }) => {
             const floor = new Decimal(String(args.where.availableQuantity?.gte ?? "0"));
             if (available.gte(floor)) {
-              available = new Decimal(args.data.availableQuantity);
+              available = available.minus(decrementOf(args.data.availableQuantity));
               return { count: 1 };
             }
             return { count: 0 };
           },
+        },
+        listing: {
+          updateMany: async () => ({ count: 1 }),
         },
       };
       return fn(tx);

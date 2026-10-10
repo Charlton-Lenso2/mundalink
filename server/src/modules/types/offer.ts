@@ -113,10 +113,18 @@ export class OfferValidation {
       throw badRequestError(`${key} is required and must be a positive decimal`);
     }
     if (typeof value === "number" && Number.isFinite(value)) {
-      return new Decimal(value);
+      const parsed = new Decimal(value);
+      if (parsed.lte(0)) {
+        throw badRequestError(`${key} must be greater than zero`);
+      }
+      return parsed;
     }
     if (typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim())) {
-      return new Decimal(value.trim());
+      const parsed = new Decimal(value.trim());
+      if (parsed.lte(0)) {
+        throw badRequestError(`${key} must be greater than zero`);
+      }
+      return parsed;
     }
     throw badRequestError(`${key} must be a positive decimal number`);
   }
@@ -127,7 +135,11 @@ export class OfferValidation {
       throw badRequestError(`${key} is required and must be a non-negative decimal`);
     }
     if (typeof value === "number" && Number.isFinite(value)) {
-      return new Decimal(value);
+      const parsed = new Decimal(value);
+      if (parsed.lt(0)) {
+        throw badRequestError(`${key} must be a non-negative decimal number`);
+      }
+      return parsed;
     }
     if (typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim())) {
       return new Decimal(value.trim());

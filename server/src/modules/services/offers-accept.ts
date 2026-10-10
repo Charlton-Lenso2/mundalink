@@ -79,11 +79,11 @@ export class OfferAcceptanceService {
         forbiddenError("Offer buyer mismatch");
       }
 
-      // Guarded inventory decrement. Check affected rows.
-      const available = new Decimal(String(offer.listing.availableQuantity));
+      // Guarded inventory decrement: single atomic UPDATE, DB computes the new
+      // value. The WHERE clause is the concurrency guard — no read-modify-write.
       const requested = new Decimal(String(offer.offeredQuantity));
-      if (available.lt(requested)) {
-        conflictError("Insufficient inventory for this offer");
+      if (!requested.isFinite() || requested.lte(0)) {
+        badRequestError("Offered quantity must be positive");
       }
 
       const decremented = await tx.inventory.updateMany({
@@ -92,13 +92,19 @@ export class OfferAcceptanceService {
           availableQuantity: { gte: requested.toString() },
         },
         data: {
-          availableQuantity: available.minus(requested).toString(),
+          availableQuantity: { decrement: requested.toString() },
         },
       });
 
       if (decremented.count !== 1) {
         conflictError("Insufficient inventory for this offer");
       }
+
+      // Keep the listing mirror in sync inside the same transaction.
+      await tx.listing.updateMany({
+        where: { id: offer.listingId },
+        data: { availableQuantity: { decrement: requested.toString() } },
+      });
 
       // Idempotent deal creation: unique constraint on offerId guarantees exactly
       // one AgreedDeal is ever created, even if the request retries.

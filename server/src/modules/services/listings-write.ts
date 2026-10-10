@@ -2,7 +2,6 @@
 //
 // These methods own persistence and audit logging for listing mutations.
 
-import { Decimal } from "decimal.js";
 import type { PrismaClient } from "@prisma/client";
 import { ListingValidation } from "../validation/listing";
 import { auditListingCreated } from "../auditLog";
@@ -78,6 +77,7 @@ export class ListingWriteService {
       const updated = await tx.listing.update({
         where: { id },
       data: {
+        ...(input.title !== undefined && { title: input.title }),
         ...(input.description !== undefined && { description: input.description ?? null }),
         ...(input.category !== undefined && input.category !== null && {
           category: input.category ?? null,

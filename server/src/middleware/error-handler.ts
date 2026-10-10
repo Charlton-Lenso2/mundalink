@@ -52,37 +52,38 @@ export function errorHandler(
 
   // Already a normalised HTTP error -> use its semantics.
   if (error instanceof HttpError) {
-    sendError(res, error);
+    sendError(res, error, req);
     return;
   }
 
   // Prisma's known safe errors -> map to HTTP semantics.
+  // NB: raw driver messages can contain constraint/table fragments, so we
+  // return generic messages and log the raw error server-side only.
   if (error instanceof Error && "code" in error) {
     const prismaCode = (error as { code?: string }).code;
+    // eslint-disable-next-line no-console
+    console.error(`[prisma] ${String(prismaCode)}: ${(error as Error).message}`);
     switch (prismaCode) {
       case "P2002":
         sendError(
           res,
-          new ConflictError(
-            `A unique constraint would be violated: ${(error as Error).message}`
-          )
+          new ConflictError("A unique constraint would be violated"),
+          req
         );
         return;
       case "P2025":
         sendError(
           res,
-          new NotFoundError(
-            `The requested resource no longer exists: ${(error as Error).message}`
-          )
+          new NotFoundError("The requested resource no longer exists"),
+          req
         );
         return;
       case "P2021":
       case "P2003":
         sendError(
           res,
-          new BadRequestError(
-            `A foreign key constraint would be violated: ${(error as Error).message}`
-          )
+          new BadRequestError("A related record is missing or invalid"),
+          req
         );
         return;
       default:
@@ -91,10 +92,13 @@ export function errorHandler(
   }
 
   // Fallback for unexpected errors.
+  // eslint-disable-next-line no-console
+  console.error(`[unhandled] ${err instanceof Error ? err.message : String(err)}`);
   if (process.env.NODE_ENV === "production") {
     sendError(
       res,
-      new HttpError(500, "An internal server error occurred")
+      new HttpError(500, "An internal server error occurred"),
+      req
     );
     return;
   }
@@ -110,17 +114,20 @@ export function errorHandler(
         }
       : undefined;
 
-  sendError(res, new HttpError(500, "An internal server error occurred", details));
+  sendError(res, new HttpError(500, "An internal server error occurred", details), req);
 }
 
-function sendError(res: Response, error: HttpError): void {
+function sendError(res: Response, error: HttpError, req?: Request): void {
   const body: ErrorResponse = {
     error: {
       code: error.name,
       message: error.message,
       details: error.details,
+      path: req?.path,
+      method: req?.method,
     },
     timestamp: new Date().toISOString(),
+    requestId: req?.requestId,
   };
 
   res.status(error.statusCode).json(body);

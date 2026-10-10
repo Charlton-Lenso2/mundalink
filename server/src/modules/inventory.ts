@@ -36,39 +36,35 @@ export async function guardInventory(
 ): Promise<boolean> {
   const { listingId, quantity, prismaClient } = options;
   const p = prismaClient ?? prisma;
+  const requested = new Decimal(quantity.toString());
+  if (!requested.isFinite() || requested.lte(0)) {
+    conflictError(`Invalid reservation quantity for listing ${listingId}`);
+  }
 
   const res = await p.$transaction(async (tx: TxClient) => {
-    // 1. Snapshot current availability inside the same transaction we mutate.
-    const inv = await tx.inventory.findUnique({
-      where: { listingId },
-    });
-
-    if (!inv) {
-      // No inventory record at all: the listing is malformed; treat as insufficient.
-      return { ok: false, updated: 0 };
-    }
-
-    const available = new Decimal(inv.availableQuantity ?? "0");
-    const requested = new Decimal(quantity.toString());
-
-    if (available.lt(requested)) {
-      return { ok: false, updated: 0 };
-    }
-
-    // 2. Guarded atomic decrement.
+    // Single guarded atomic decrement: the WHERE clause is the concurrency
+    // guard, and the DB computes the new value (no read-modify-write gap).
     const updated = await tx.inventory.updateMany({
       where: {
         listingId,
         availableQuantity: {
-          gte: requested,
+          gte: requested.toString(),
         },
       },
       data: {
-        availableQuantity: available.minus(requested).toString(),
+        availableQuantity: { decrement: requested.toString() },
       },
     });
 
-    return { ok: true, updated: updated.count };
+    if (updated.count === 1) {
+      // Keep the listing mirror in sync inside the same transaction.
+      await tx.listing.updateMany({
+        where: { id: listingId },
+        data: { availableQuantity: { decrement: requested.toString() } },
+      });
+      return { ok: true, updated: 1 };
+    }
+    return { ok: false, updated: 0 };
   });
 
   if (!res.ok || res.updated !== 1) {

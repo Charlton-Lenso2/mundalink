@@ -18,7 +18,7 @@ import { DashboardSection } from './components/DashboardSection'
 import { FeaturePanel } from './components/FeaturePanel'
 import { HeroSection } from './components/HeroSection'
 import { ProfileSection } from './components/ProfileSection'
-import { api } from './lib/api'
+import { api } from './lib/apiClient'
 import { auth } from './lib/firebase'
 import type { Deal, Listing, Offer, Profile } from './types'
 

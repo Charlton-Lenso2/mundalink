@@ -7,8 +7,10 @@
 // path, not the JSON contents), so the private key never needs to live in
 // process.env and is never logged.
 
-import { initializeApp, cert, ServiceAccount } from "firebase-admin/app";
+import { initializeApp, cert, type ServiceAccount } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import fs from "node:fs";
+import path from "node:path";
 
 export let adminApp: ReturnType<typeof initializeApp> | undefined;
 export let auth: ReturnType<typeof getAuth> | undefined;
@@ -27,9 +29,6 @@ export function initializeFirebaseAdmin(): void {
   }
 
   // Read the file at startup (secrets are loaded once, never logged).
-  const fs = require("fs");
-  const path = require("path");
-
   const resolved = path.resolve(serviceAccountPath);
 
   if (!fs.existsSync(resolved)) {

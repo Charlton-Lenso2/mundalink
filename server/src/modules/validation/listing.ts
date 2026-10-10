@@ -181,7 +181,11 @@ export class ListingValidation {
       throw badRequestError(`${key} is required and must be a non-negative decimal`);
     }
     if (typeof value === "number" && Number.isFinite(value)) {
-      return new Decimal(value);
+      const parsed = new Decimal(value);
+      if (parsed.lt(0)) {
+        throw badRequestError(`${key} must be a non-negative decimal number`);
+      }
+      return parsed;
     }
     if (typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim())) {
       return new Decimal(value.trim());

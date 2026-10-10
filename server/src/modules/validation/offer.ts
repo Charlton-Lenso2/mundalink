@@ -58,7 +58,7 @@ export class OfferBodyValidation {
     const v = body[key];
     try {
       const d = new Decimal(String(v));
-      if (d.lte(0)) badRequestError(`${key} must be positive`);
+      if (!d.isFinite() || d.lte(0)) badRequestError(`${key} must be positive`);
       return d;
     } catch {
       badRequestError(`${key} must be a positive decimal number`);
@@ -69,7 +69,7 @@ export class OfferBodyValidation {
     const v = body[key];
     try {
       const d = new Decimal(String(v));
-      if (d.lt(0)) badRequestError(`${key} must be non-negative`);
+      if (!d.isFinite() || d.lt(0)) badRequestError(`${key} must be non-negative`);
       return d;
     } catch {
       badRequestError(`${key} must be a non-negative decimal number`);
