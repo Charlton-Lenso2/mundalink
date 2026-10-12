@@ -93,9 +93,41 @@ export function errorHandler(
           req
         );
         return;
+      case "P1001":
+      case "P1008":
+      case "P1017":
+        // Connectivity/timeout problems are transient infrastructure issues:
+        // tell clients to retry instead of reporting an internal server bug.
+        sendError(
+          res,
+          new ServiceUnavailableError(
+            "The database is temporarily unreachable. Please retry shortly."
+          ),
+          req
+        );
+        return;
       default:
         break;
     }
+  }
+
+  // Prisma client could not initialise (e.g. the DB was unreachable when the
+  // query started). Belt-and-braces: also 503 even if no code is attached.
+  if (
+    error instanceof Error &&
+    (error.name === "PrismaClientInitializationError" ||
+      error.message.startsWith("Can't reach database server"))
+  ) {
+    // eslint-disable-next-line no-console
+    console.error(`[prisma] init: ${error.message}`);
+    sendError(
+      res,
+      new ServiceUnavailableError(
+        "The database is temporarily unreachable. Please retry shortly."
+      ),
+      req
+    );
+    return;
   }
 
   // Fallback for unexpected errors.

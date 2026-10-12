@@ -91,6 +91,21 @@ describe("errorHandler Prisma code mapping", () => {
     expect(out.code).toBe("NotFoundError");
   });
 
+  it("maps P1001 (database unreachable) to 503", () => {
+    const out = run(prismaError("P1001"));
+    expect(out.status).toBe(503);
+    expect(out.code).toBe("ServiceUnavailableError");
+    expect(out.message).toMatch(/retry/i);
+  });
+
+  it("maps PrismaClientInitializationError to 503", () => {
+    const error = new Error("Can't reach database server at `db.example:5432`");
+    error.name = "PrismaClientInitializationError";
+    const out = run(error);
+    expect(out.status).toBe(503);
+    expect(out.code).toBe("ServiceUnavailableError");
+  });
+
   it("passes normalised HttpError instances through unchanged", () => {
     const out = run(new NotFoundError("Listing not found"));
     expect(out.status).toBe(404);
