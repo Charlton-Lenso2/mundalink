@@ -2,9 +2,11 @@ import { auth } from './firebase'
 import { mockDeals, mockListings, mockOffers, mockProfile } from '../data/mock-data'
 import type { ApiHealthResponse, Deal, DealStatus, Listing, Offer, OfferStatus, Profile } from '../types'
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '')
-  .replace(/\/+$/, '')
-  .replace(/\/api$/i, '')
+export function normalizeApiBaseUrl(baseUrl: string | undefined): string {
+  return (baseUrl ?? '').trim().replace(/\/+$/, '').replace(/(?:\/api)+$/i, '')
+}
+
+const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
 const isMockForced = import.meta.env.VITE_USE_MOCK_API === 'true'
 
 const buildUrl = (path: string) => {
@@ -60,7 +62,9 @@ async function requestEnvelope<T>(
   }
 
   const headers = new Headers(options.headers ?? {})
-  headers.set('Content-Type', 'application/json')
+  if (options.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
 
   if (requireAuth) {
     const authHeaders = await getAuthHeader()

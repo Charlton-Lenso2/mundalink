@@ -16,6 +16,7 @@ describe("protected API routes", () => {
     ["GET", "/api/deals/mine"],
     ["GET", "/api/deals/deal-id/history"],
     ["PATCH", "/api/deals/deal-id/status"],
+    ["GET", "/api/analytics/summary"],
   ] as const)("rejects unauthenticated %s %s", async (method, path) => {
     const response = await request(app)[method.toLowerCase() as "get" | "post" | "patch"](path);
 

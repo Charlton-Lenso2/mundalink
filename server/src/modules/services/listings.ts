@@ -6,11 +6,16 @@ import type { PrismaClient } from "@prisma/client";
 import { ListingRecord, toListingRecord } from "../types/listing";
 import { ListingWriteService } from "./listings-write";
 
+export type ListingSortField = "createdAt" | "pricePerUnit" | "quantity";
+export type SortOrder = "asc" | "desc";
+
 export interface ListingFilters {
   category?: string;
   location?: string;
   status?: import("../types/listing").ListingStatus;
   search?: string;
+  sortBy?: ListingSortField;
+  sortOrder?: SortOrder;
 }
 
 export interface ListingPage {
@@ -50,6 +55,10 @@ export class PrismaListingService implements ListingService {
     const skip = (page - 1) * limit;
     const where: Record<string, unknown> = {};
 
+    // Whitelisted sort (validated at the route layer); default newest first.
+    const sortField: ListingSortField = filters?.sortBy ?? "createdAt";
+    const sortDirection: SortOrder = filters?.sortOrder ?? "desc";
+
     if (filters?.category) where.category = filters.category;
     if (filters?.status) where.status = filters.status;
     if (filters?.location) where.location = { contains: filters.location, mode: "insensitive" };
@@ -64,7 +73,7 @@ export class PrismaListingService implements ListingService {
     const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: { [sortField]: sortDirection },
         skip,
         take: limit,
         include: { seller: { select: { displayName: true } } },

@@ -50,9 +50,11 @@ enforced server-side — 400 `Invalid status transition <from> -> <to>`:
 Setting a listing to its current status is an allowed no-op (idempotent
 publish). Only the owner edits; only whitelisted fields.
 
-- `GET /api/listings?search=&category=&location=&status=&page=&limit=`
+- `GET /api/listings?search=&category=&location=&status=&sortBy=&sortOrder=&page=&limit=`
   → `{ data: Listing[], meta: { page, limit, total, totalPages } }`.
   `search` matches title/description/commodity (case-insensitive).
+  `sortBy` is one of `createdAt` (default), `pricePerUnit`, `quantity`;
+  `sortOrder` is `ASC` or `DESC` (default `DESC`). Anything else → 400.
 - `GET /api/listings/:id` → `{ data: Listing }` or 404.
   Listing reads include `sellerName` when the seller has provided a display name.
 - `POST /api/listings` (auth) — seller creates. Body:
@@ -106,10 +108,44 @@ Deal statuses: `PENDING → CONFIRMED → COMPLETED`, or `→ CANCELLED` from
   `OFFER_ACCEPTED` event that created it; `payload` is the parsed audit JSON
   or `null`. Outsider → 403; unknown id → 404.
 - `PATCH /api/deals/:id/status` (auth, buyer or seller of the deal) — body
-  `{ status }`, one of `CONFIRMED`, `COMPLETED`, `CANCELLED`.
+  `{ status, reason? }`, one of `CONFIRMED`, `COMPLETED`, `CANCELLED`.
   - `PENDING → CONFIRMED | CANCELLED`; `CONFIRMED → COMPLETED | CANCELLED`.
   - `COMPLETED` sets `executedAt`. Anything else → 400; outsider → 403;
     unknown id → 404. Audited as `DEAL_EXECUTED` / `DEAL_CANCELLED`.
+  - `reason` (optional string, ≤ 500 chars) is recorded in the audit entry's
+    `payload` and therefore appears in `/deals/:id/history` — use it to explain
+    cancellations or note delivery issues. Invalid `reason` → 400.
+
+## Analytics
+
+- `GET /api/analytics/summary` (auth) → global platform aggregates computed
+  from stored data (no fabricated numbers):
+  ```json
+  { "data": {
+      "listings": { "byStatus": { "ACTIVE": 3, "DRAFT": 1 } },
+      "offers":   { "byStatus": { "PENDING": 2 } },
+      "deals":    { "byStatus": { "COMPLETED": 1 },
+                    "agreedValueByCurrency": { "USD": "1105.000000" } },
+      "profiles": { "total": 6, "byRole": { "SELLER": 3 } },
+      "generatedAt": "2026-10-12T10:00:00.000Z"
+  } }
+  ```
+  Deal value = Σ (agreedQuantity × agreedPrice), Decimal-safe, summed per
+  listing currency. Only global aggregates are exposed — never per-user
+  breakdowns.
+
+## First-admin bootstrap
+
+There is **no HTTP endpoint that grants `ADMIN`**. The first administrator is
+provisioned by an operator running, from `server/`:
+
+```powershell
+npm run admin:promote -- <firebaseUid-or-email>
+```
+
+The target's profile must already exist (they must have signed in once). The
+promotion is idempotent and recorded in the audit log (`ADMIN_PROMOTED`).
+Existing admins can assign roles afterwards via `PATCH /api/profile/me`.
 
 ## Inventory behavior (all-or-nothing)
 

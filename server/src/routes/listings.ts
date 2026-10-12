@@ -17,7 +17,28 @@ function parsePaging(q: Request["query"]): { page: number; limit: number } {
   return { page, limit };
 }
 
-// GET /api/listings?search=&category=&location=&status=&page=&limit=
+// Whitelisted sort fields — anything else is rejected with 400 (never passed
+// through to the ORM as an arbitrary column name).
+const SORT_FIELDS = ["createdAt", "pricePerUnit", "quantity"] as const;
+type SortField = (typeof SORT_FIELDS)[number];
+type SortOrder = "asc" | "desc";
+
+function parseSort(q: Request["query"]): { sortBy?: SortField; sortOrder?: SortOrder } {
+  const rawField = typeof q.sortBy === "string" ? q.sortBy : undefined;
+  if (rawField !== undefined && !SORT_FIELDS.includes(rawField as SortField)) {
+    badRequestError(`sortBy must be one of ${SORT_FIELDS.join(", ")}`);
+  }
+  const rawOrder = typeof q.sortOrder === "string" ? q.sortOrder.toUpperCase() : undefined;
+  if (rawOrder !== undefined && rawOrder !== "ASC" && rawOrder !== "DESC") {
+    badRequestError("sortOrder must be ASC or DESC");
+  }
+  return {
+    sortBy: rawField as SortField | undefined,
+    sortOrder: rawOrder === undefined ? undefined : (rawOrder.toLowerCase() as SortOrder),
+  };
+}
+
+// GET /api/listings?search=&category=&location=&status=&sortBy=&sortOrder=&page=&limit=
 listingsRouter.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit } = parsePaging(req.query);
@@ -29,6 +50,7 @@ listingsRouter.get("/", async (req: Request, res: Response, next: NextFunction) 
       badRequestError("status must be one of DRAFT, ACTIVE, REJECTED, SOLD");
     }
     const svc = new PrismaListingService(prisma);
+    const sort = parseSort(req.query);
     const result = await svc.findAll(
       undefined,
       {
@@ -36,6 +58,8 @@ listingsRouter.get("/", async (req: Request, res: Response, next: NextFunction) 
         location: typeof req.query.location === "string" ? req.query.location : undefined,
         status,
         search: typeof req.query.search === "string" ? req.query.search : undefined,
+        sortBy: sort.sortBy,
+        sortOrder: sort.sortOrder,
       },
       page,
       limit

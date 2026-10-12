@@ -58,3 +58,16 @@ does not clash with existing tables.
 See [`docs/api-contract.md`](./docs/api-contract.md) — the single source of
 truth for routes, request/response shapes, validation, auth errors, and the
 all-or-nothing inventory rule. All routes are prefixed with `/api`.
+
+## Admin bootstrap
+
+There is no HTTP endpoint that grants the `ADMIN` role. The first
+administrator (and any out-of-band promotion) is done by an operator:
+
+```powershell
+npm run admin:promote -- <firebaseUid-or-email>
+```
+
+Requires the normal server environment (`.env` + Firebase service-account
+file). The target must have signed in once (profile row exists). Promotion is
+idempotent and audit-logged (`ADMIN_PROMOTED`).

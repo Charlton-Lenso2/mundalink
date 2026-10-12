@@ -49,7 +49,7 @@ dealsRouter.get("/:id/history", authenticate(), async (req: Request, res: Respon
 // Buyer or seller only. PENDING -> CONFIRMED/CANCELLED; CONFIRMED -> COMPLETED/CANCELLED.
 dealsRouter.patch("/:id/status", authenticate(), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { status } = DealBodyValidation.status(req.body);
+    const { status, reason } = DealBodyValidation.status(req.body);
     const client = req.prisma ?? prisma;
     const pid = await profileIdFor(req.firebaseUid as string, client);
     const svc = new DealService(client);
@@ -60,7 +60,7 @@ dealsRouter.patch("/:id/status", authenticate(), async (req: Request, res: Respo
       entityType: "deal",
       entityId: deal.id,
       action: status === DEAL_STATUS.CANCELLED ? "DEAL_CANCELLED" : "DEAL_EXECUTED",
-      payload: { status },
+      payload: reason !== undefined ? { status, reason } : { status },
       prismaClient: client,
     });
     res.json({ data: deal });

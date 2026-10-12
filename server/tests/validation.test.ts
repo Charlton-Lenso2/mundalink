@@ -120,6 +120,26 @@ describe("DealBodyValidation.status", () => {
       expect(DealBodyValidation.status({ status: s.toLowerCase() }).status).toBe(s);
     }
   });
+
+  it("captures an optional cancellation/fulfilment reason", () => {
+    const parsed = DealBodyValidation.status({ status: "CANCELLED", reason: "Never harvested" });
+    expect(parsed.status).toBe("CANCELLED");
+    expect(parsed.reason).toBe("Never harvested");
+  });
+
+  it("omits the reason when absent or null", () => {
+    expect(DealBodyValidation.status({ status: "CONFIRMED" }).reason).toBeUndefined();
+    expect(DealBodyValidation.status({ status: "CONFIRMED", reason: null }).reason).toBeUndefined();
+  });
+
+  it("rejects a non-string or oversized reason", () => {
+    expect(() => DealBodyValidation.status({ status: "CANCELLED", reason: 42 })).toThrow(
+      /reason/
+    );
+    expect(() =>
+      DealBodyValidation.status({ status: "CANCELLED", reason: "x".repeat(501) })
+    ).toThrow(/reason/);
+  });
 });
 
 describe("NUMERIC(20,6) storage guards (validateStoredDecimal)", () => {

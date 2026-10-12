@@ -10,6 +10,7 @@ import { profileRouter } from "./routes/profile";
 import { listingsRouter } from "./routes/listings";
 import { offersRouter } from "./routes/offers";
 import { dealsRouter } from "./routes/deals";
+import { analyticsRouter } from "./routes/analytics";
 
 export function createApp() {
   const app = express();
@@ -29,6 +30,7 @@ export function createApp() {
   app.use("/api/listings", listingsRouter);
   app.use("/api/offers", offersRouter);
   app.use("/api/deals", dealsRouter);
+  app.use("/api/analytics", analyticsRouter);
 
   app.use((_req, res) => {
     res.status(404).json({
