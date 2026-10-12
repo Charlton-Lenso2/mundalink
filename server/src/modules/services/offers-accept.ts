@@ -67,7 +67,8 @@ export class OfferAcceptanceService {
 
       if (!offer) notFoundError(`Offer not found: ${offerId}`);
       if (offer.status !== OFFER_STATUS.PENDING) {
-        badRequestError(`Cannot accept an offer in status ${offer.status}`);
+        // State conflict (repeat / double accept) -> 409 per api-contract.md.
+        conflictError(`Cannot accept an offer in status ${offer.status}`);
       }
       if (offer.listing.status !== LISTING_STATUS.ACTIVE) {
         badRequestError(`Listing is not active`);
@@ -128,6 +129,35 @@ export class OfferAcceptanceService {
       });
 
       return toOfferRecord(accepted);
+    });
+  }
+
+  /**
+   * Listing owner declines their listing's offer. All-or-nothing: the read and
+   * status change run in one transaction so the permission/state checks can't
+   * race with a concurrent accept or second decline.
+   */
+  async decline(offerId: string, sellerId: string): Promise<OfferRecord> {
+    return this.prisma.$transaction(async (tx: TxClient) => {
+      const offer = await tx.offer.findUnique({
+        where: { id: offerId },
+        select: { id: true, status: true, listing: { select: { sellerId: true } } },
+      });
+
+      if (!offer) notFoundError(`Offer not found: ${offerId}`);
+      if (offer.listing.sellerId !== sellerId) {
+        forbiddenError("Only the listing owner can decline");
+      }
+      if (offer.status !== OFFER_STATUS.PENDING) {
+        badRequestError("Only PENDING offers can be declined");
+      }
+
+      const updated = await tx.offer.update({
+        where: { id: offerId },
+        data: { status: OFFER_STATUS.DECLINED },
+      });
+
+      return toOfferRecord(updated);
     });
   }
 

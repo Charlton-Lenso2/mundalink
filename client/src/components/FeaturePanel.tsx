@@ -2,13 +2,13 @@ export function FeaturePanel() {
   return (
     <aside className="feature-panel">
       <div className="mini-card highlight-card">
-        <div className="label">Featured market</div>
-        <h3>Maize and soyabean demand remains strong</h3>
-        <p>Harare and Mutoko remain active zones for white maize, soya, and input deals.</p>
+        <div className="label">How MundaLink works</div>
+        <h3>From listing to completed deal</h3>
+        <p>Producers list harvests, buyers make offers, and both sides track confirmation and completion.</p>
         <ul>
-          <li>Verified seller profiles</li>
-          <li>Clear offer status tracking</li>
-          <li>Flexible pickup coordination</li>
+          <li>List produce with quantity, unit, and price</li>
+          <li>Make and manage offers with clear statuses</li>
+          <li>Confirm and complete agreed deals</li>
         </ul>
       </div>
     </aside>

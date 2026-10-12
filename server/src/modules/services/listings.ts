@@ -4,7 +4,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { ListingRecord, toListingRecord } from "../types/listing";
-import { auditListingCreated } from "../auditLog";
+import { ListingWriteService } from "./listings-write";
 
 export interface ListingFilters {
   category?: string;
@@ -91,33 +91,9 @@ export class PrismaListingService implements ListingService {
     input: import("../types/listing").CreateListingInput,
     prismaClient: PrismaClient
   ): Promise<ListingRecord> {
-    const listing = await prismaClient.listing.create({
-      data: {
-        sellerId: input.sellerId,
-        title: input.title,
-        description: input.description ?? null,
-        category: input.category ?? null,
-        commodity: input.commodity ?? null,
-        quantity: input.quantity.toString(),
-        unit: input.unit ?? null,
-        pricePerUnit: input.pricePerUnit.toString(),
-        currency: input.currency,
-        location: input.location ?? null,
-        latitude: input.latitude ?? null,
-        longitude: input.longitude ?? null,
-        availableQuantity: input.availableQuantity.toString(),
-        status: "DRAFT",
-      },
-    });
-
-    // Audit via the shared singleton.
-    await auditListingCreated(listing.id, listing.sellerId, {
-      quantity: listing.quantity,
-      pricePerUnit: listing.pricePerUnit,
-      currency: listing.currency,
-    });
-
-    return toListingRecord(listing);
+    // Single write path: listings-write owns persistence, the inventory row,
+    // and audit logging (never create a listing without its inventory row).
+    return ListingWriteService.create(input, prismaClient);
   }
 
   async update(
@@ -126,47 +102,8 @@ export class PrismaListingService implements ListingService {
     ownerId: string,
     prismaClient: PrismaClient
   ): Promise<ListingRecord> {
-    const existing = await prismaClient.listing.findUnique({
-      where: { id },
-      select: { sellerId: true },
-    });
-
-    if (!existing) {
-      throw new Error(`Listing not found: ${id}`);
-    }
-    if (existing.sellerId !== ownerId) {
-      throw new Error("Forbidden");
-    }
-
-    const listing = await prismaClient.listing.update({
-      where: { id },
-      data: {
-        ...(input.title !== undefined && { title: input.title }),
-        ...(input.description !== undefined && { description: input.description ?? null }),
-        ...(input.category !== undefined && input.category !== null && {
-          category: input.category ?? null,
-        }),
-        ...(input.commodity !== undefined && input.commodity !== null && {
-          commodity: input.commodity ?? null,
-        }),
-        ...(input.quantity !== undefined && { quantity: input.quantity.toString() }),
-        ...(input.unit !== undefined && input.unit !== null && { unit: input.unit ?? null }),
-        ...(input.pricePerUnit !== undefined && {
-          pricePerUnit: input.pricePerUnit.toString(),
-        }),
-        ...(input.currency !== undefined && { currency: input.currency ?? null }),
-        ...(input.location !== undefined && input.location !== null && {
-          location: input.location ?? null,
-        }),
-        ...(input.latitude !== undefined && { latitude: input.latitude ?? null }),
-        ...(input.longitude !== undefined && { longitude: input.longitude ?? null }),
-        ...(input.availableQuantity !== undefined && {
-          availableQuantity: input.availableQuantity.toString(),
-        }),
-        ...(input.status !== undefined && { status: input.status }),
-      },
-    });
-
-    return toListingRecord(listing);
+    // Single write path: ownership, status-transition rules, and audit logging
+    // live in listings-write (proper 403/404/400 HTTP errors, not bare 500s).
+    return ListingWriteService.update(id, input, ownerId, prismaClient);
   }
 }

@@ -1,15 +1,16 @@
 import { auth } from './firebase'
 import { mockDeals, mockListings, mockOffers, mockProfile } from '../data/mock-data'
-import type { ApiHealthResponse, Deal, Listing, Offer, Profile } from '../types'
+import type { ApiHealthResponse, Deal, DealStatus, Listing, Offer, OfferStatus, Profile } from '../types'
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const isMockForced = import.meta.env.VITE_USE_MOCK_API === 'true'
 
 const buildUrl = (path: string) => {
-  if (!apiBaseUrl && !isMockForced) {
-    return path
-  }
-  return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
+  const suffixed = path.startsWith('/') ? path : `/${path}`
+  // Backend mounts every route under /api (see server/src/app.ts).
+  const withPrefix = suffixed.startsWith('/api/') ? suffixed : `/api${suffixed}`
+  if (!apiBaseUrl) return withPrefix
+  return `${apiBaseUrl}${withPrefix}`
 }
 
 const getAuthHeader = async () => {
@@ -19,7 +20,7 @@ const getAuthHeader = async () => {
   return { Authorization: `Bearer ${token}` }
 }
 
-async function parseJson(response: Response): Promise<any | null> {
+async function parseJson(response: Response): Promise<unknown | null> {
   try {
     return await response.json()
   } catch {
@@ -27,10 +28,19 @@ async function parseJson(response: Response): Promise<any | null> {
   }
 }
 
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}, requireAuth = false): Promise<T> {
   const isMock = isMockForced || !apiBaseUrl
   if (isMock) {
-    throw new Error('MOCK_MODE')
+    throw new ApiError('Live backend is not configured', 0)
   }
 
   const headers = new Headers(options.headers ?? {})
@@ -41,21 +51,47 @@ async function request<T>(path: string, options: RequestInit = {}, requireAuth =
     Object.entries(authHeaders).forEach(([key, value]) => headers.set(key, String(value)))
   }
 
-  const response = await fetch(buildUrl(path), { ...options, headers })
-  const payload = await parseJson(response)
+  const response = await fetch(buildUrl(path), { ...options, headers }).catch(() => {
+    throw new ApiError('Network error: could not reach the backend. Check your connection and try again.', 0)
+  })
+  const payload = (await parseJson(response)) as {
+    ok?: boolean
+    status?: string
+    message?: string
+    error?: { message?: unknown } | string
+    data?: T
+  } | null
 
   if (!response.ok) {
-    const errMsg = payload && payload.error && payload.error.message
-      ? String(payload.error.message)
-      : (payload && (payload.message || payload.error) ? String(payload.message ?? payload.error) : response.statusText)
-    throw new Error(errMsg)
+    const errMsg =
+      payload?.error && typeof payload.error === 'object' && payload.error.message
+        ? String(payload.error.message)
+        : payload?.message ?? (typeof payload?.error === 'string' ? payload.error : response.statusText)
+    throw new ApiError(errMsg, response.status)
   }
 
   if (payload && Object.prototype.hasOwnProperty.call(payload, 'data')) {
     return payload.data as T
   }
 
-  return (payload ?? ({} as T))
+  return (payload ?? ({} as T)) as T
+}
+
+export interface ListingQuery {
+  search?: string
+  category?: string
+  location?: string
+  status?: Listing['status']
+  page?: number
+  limit?: number
+}
+
+export interface ListingPage {
+  items: Listing[]
+  page: number
+  limit: number
+  total: number
+  totalPages: number
 }
 
 export const api = {
@@ -65,179 +101,174 @@ export const api = {
         ok: true,
         status: 'demo',
         mode: 'mock',
-        message: 'Demo data mode enabled because the live backend is unavailable.',
+        message: 'Demonstration data mode: the live backend is not connected in this environment.',
       }
     }
 
     try {
-      const response = await request<{ ok: boolean; status: string; message?: string }>('/health')
+      const payload = await request<{ status: string; database?: { status: string } }>('/health')
+      const dbUp = payload.database?.status === 'up' || payload.status === 'ok'
       return {
-        ok: response.ok,
-        status: response.status,
+        ok: dbUp,
+        status: payload.status,
         mode: 'live',
-        message: response.message ?? 'Live backend connected.',
+        message: dbUp ? 'Live backend connected.' : 'Live backend reachable; database is degraded.',
       }
     } catch {
       return {
         ok: true,
         status: 'demo',
         mode: 'mock',
-        message: 'Demo data mode enabled because the live backend is unavailable.',
+        message: 'Demonstration data mode: the live backend is unavailable.',
       }
     }
   },
 
   listings: {
-    list: async () => {
-      if (isMockForced || !apiBaseUrl) return mockListings
-      try {
-        const response = await request<Listing[]>('/listings')
-        return response
-      } catch {
-        return mockListings
+    list: async (query: ListingQuery = {}): Promise<ListingPage> => {
+      if (isMockForced || !apiBaseUrl) {
+        let items = [...mockListings]
+        const search = (query.search ?? '').toLowerCase()
+        if (search) {
+          items = items.filter((l) =>
+            [l.title, l.description ?? '', l.commodity ?? ''].join(' ').toLowerCase().includes(search),
+          )
+        }
+        if (query.category && query.category !== 'All') items = items.filter((l) => l.category === query.category)
+        if (query.location && query.location !== 'All') {
+          items = items.filter((l) => (l.location ?? '').toLowerCase().includes((query.location ?? '').toLowerCase()))
+        }
+        return { items, page: 1, limit: items.length, total: items.length, totalPages: 1 }
       }
+      const params = new URLSearchParams()
+      if (query.search) params.set('search', query.search)
+      if (query.category) params.set('category', query.category)
+      if (query.location) params.set('location', query.location)
+      if (query.status) params.set('status', query.status)
+      if (query.page) params.set('page', String(query.page))
+      if (query.limit) params.set('limit', String(query.limit))
+      const qs = params.toString()
+      const response = await request<Listing[] | { data: Listing[]; meta: Omit<ListingPage, 'items'> }>(`/listings${qs ? `?${qs}` : ''}`)
+      if (Array.isArray(response)) {
+        return { items: response, page: 1, limit: response.length, total: response.length, totalPages: 1 }
+      }
+      return { items: response.data ?? [], ...(response.meta ?? { page: 1, limit: 0, total: 0, totalPages: 0 }) }
     },
     getById: async (id: string) => {
       if (isMockForced || !apiBaseUrl) return mockListings.find((l) => l.id === id) ?? null
       try {
         const response = await request<Listing>(`/listings/${id}`)
         return response
-      } catch {
-        return mockListings.find((l) => l.id === id) ?? null
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return null
+        throw err
       }
     },
-    create: async (payload: Omit<Listing, 'id' | 'sellerId' | 'sellerName' | 'status' | 'createdAt'>) => {
+    create: async (payload: {
+      title: string
+      description?: string | null
+      commodity?: string | null
+      category?: string | null
+      quantity: string
+      unit?: string | null
+      pricePerUnit: string
+      availableQuantity: string
+      currency?: string
+      location?: string | null
+    }) => {
       if (isMockForced || !apiBaseUrl) {
         const newListing: Listing = {
           ...payload,
           id: `listing-${Date.now()}`,
+          description: payload.description ?? null,
+          commodity: payload.commodity ?? null,
+          category: payload.category ?? null,
+          unit: payload.unit ?? null,
+          location: payload.location ?? null,
+          currency: payload.currency ?? 'USD',
           sellerId: 'current-user',
-          sellerName: mockProfile.name,
-          status: 'Available',
+          sellerName: mockProfile.displayName ?? 'Demonstration seller',
+          status: 'DRAFT',
           createdAt: new Date().toISOString(),
         }
         mockListings.unshift(newListing)
         return newListing
       }
-      try {
-        const response = await request<Listing>('/listings', { method: 'POST', body: JSON.stringify(payload) }, true)
-        return response
-      } catch {
-        const newListing: Listing = {
-          ...payload,
-          id: `listing-${Date.now()}`,
-          sellerId: 'current-user',
-          sellerName: mockProfile.name,
-          status: 'Available',
-          createdAt: new Date().toISOString(),
-        }
-        mockListings.unshift(newListing)
-        return newListing
+      return request<Listing>('/listings', { method: 'POST', body: JSON.stringify(payload) }, true)
+    },
+    publish: async (id: string) => {
+      if (isMockForced || !apiBaseUrl) {
+        const target = mockListings.find((l) => l.id === id)
+        if (target) target.status = 'ACTIVE'
+        return target ?? null
       }
+      return request<Listing>(`/listings/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'ACTIVE' }) }, true)
     },
   },
 
   profile: {
     me: async (): Promise<Profile> => {
       if (isMockForced || !apiBaseUrl) return mockProfile
-      try {
-        const response = await request<Profile>('/profile/me', {}, true)
-        return response
-      } catch {
-        return mockProfile
-      }
+      return request<Profile>('/profile/me', {}, true)
     },
     update: async (payload: Partial<Profile>) => {
       if (isMockForced || !apiBaseUrl) {
         Object.assign(mockProfile, payload)
         return mockProfile
       }
-      try {
-        const response = await request<Profile>('/profile/me', { method: 'PATCH', body: JSON.stringify(payload) }, true)
-        return response
-      } catch {
-        Object.assign(mockProfile, payload)
-        return mockProfile
-      }
+      return request<Profile>('/profile/me', { method: 'PATCH', body: JSON.stringify(payload) }, true)
     },
   },
 
   offers: {
     mine: async (): Promise<Offer[]> => {
       if (isMockForced || !apiBaseUrl) return mockOffers
-      try {
-        const response = await request<Offer[]>('/offers/mine', {}, true)
-        return response
-      } catch {
-        return mockOffers
-      }
+      return request<Offer[]>('/offers/mine', {}, true)
     },
-    create: async (payload: Omit<Offer, 'id' | 'buyerId' | 'buyerName' | 'status' | 'createdAt'>) => {
+    create: async (payload: { listingId: string; offeredQuantity: string; offeredPrice: string; message?: string | null }) => {
       if (isMockForced || !apiBaseUrl) {
         const newOffer: Offer = {
           ...payload,
+          message: payload.message ?? null,
           id: `offer-${Date.now()}`,
           buyerId: 'current-user',
-          buyerName: mockProfile.name,
-          status: 'Pending',
+          buyerName: mockProfile.displayName ?? 'Demonstration buyer',
+          currency: 'USD',
+          status: 'PENDING',
           createdAt: new Date().toISOString(),
         }
         mockOffers.unshift(newOffer)
         return newOffer
       }
-      try {
-        const response = await request<Offer>('/offers', { method: 'POST', body: JSON.stringify(payload) }, true)
-        return response
-      } catch {
-        const newOffer: Offer = {
-          ...payload,
-          id: `offer-${Date.now()}`,
-          buyerId: 'current-user',
-          buyerName: mockProfile.name,
-          status: 'Pending',
-          createdAt: new Date().toISOString(),
-        }
-        mockOffers.unshift(newOffer)
-        return newOffer
-      }
+      return request<Offer>('/offers', { method: 'POST', body: JSON.stringify(payload) }, true)
     },
-    updateStatus: async (offerId: string, status: Offer['status']) => {
+    updateStatus: async (offerId: string, status: OfferStatus) => {
       if (isMockForced || !apiBaseUrl) {
         const target = mockOffers.find((o) => o.id === offerId)
         if (target) target.status = status
         return target ?? null
       }
-      try {
-        const response = await request<Offer>(`/offers/${offerId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }, true)
-        return response
-      } catch {
-        const target = mockOffers.find((o) => o.id === offerId)
-        if (target) target.status = status
-        return target ?? null
-      }
+      return request<Offer>(`/offers/${offerId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }, true)
     },
   },
 
   deals: {
     mine: async (): Promise<Deal[]> => {
       if (isMockForced || !apiBaseUrl) return mockDeals
-      try {
-        const response = await request<Deal[]>('/deals/mine', {}, true)
-        return response
-      } catch {
-        return mockDeals
+      return request<Deal[]>('/deals/mine', {}, true)
+    },
+    updateStatus: async (dealId: string, status: DealStatus) => {
+      if (isMockForced || !apiBaseUrl) {
+        const target = mockDeals.find((d) => d.id === dealId)
+        if (target) target.status = status
+        return target ?? null
       }
+      return request<Deal>(`/deals/${dealId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }, true)
     },
   },
 }
 
 export const apiMode = isMockForced || !apiBaseUrl ? 'mock' : 'live'
 export const apiNotice = isMockForced || !apiBaseUrl
-  ? 'Demo data mode: the live backend is not connected in this environment.'
+  ? 'Demonstration data mode: the live backend is not connected in this environment.'
   : 'Live API mode is enabled.'
-
-export const resolveListingStatus = (status: Listing['status']) => {
-  if (status === 'Reserved') return 'Reserved'
-  if (status === 'Sold') return 'Sold'
-  return 'Available'
-}

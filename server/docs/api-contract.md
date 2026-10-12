@@ -30,14 +30,25 @@ DB is checked separately (`SELECT 1`); 503 + `degraded` when DB is down.
   verified `firebaseUid`. Creates with role `OBSERVER` when absent.
 - `PATCH /api/profile/me` (auth) — body may include `displayName`, `phone`,
   `avatarUrl`, `city`, `region`, `country`, `latitude`, `longitude`.
+  If no row exists yet (PATCH before GET), one is created with the provided
+  fields (role `OBSERVER` unless an admin supplied `role`).
   `role` is accepted ONLY from callers whose profile role is `ADMIN`;
   otherwise it is silently stripped (no self-promotion).
 
 ## Listings
 
-Listing statuses: `DRAFT → ACTIVE → SOLD`, plus `REJECTED`.
-`SOLD`/`REJECTED` are terminal-ish: edits that would resurrect a `SOLD`
-listing are rejected; only the owner edits; only whitelisted fields.
+Listing statuses: `DRAFT`, `ACTIVE`, `REJECTED`, `SOLD`. Status changes are
+enforced server-side — 400 `Invalid status transition <from> -> <to>`:
+
+| From | Allowed next statuses |
+|---|---|
+| `DRAFT` | `ACTIVE`, `REJECTED` |
+| `ACTIVE` | `DRAFT`, `REJECTED`, `SOLD` |
+| `REJECTED` | `DRAFT` (draft is reusable) |
+| `SOLD` | — (terminal; a `SOLD` listing can never be resurrected) |
+
+Setting a listing to its current status is an allowed no-op (idempotent
+publish). Only the owner edits; only whitelisted fields.
 
 - `GET /api/listings?search=&category=&location=&status=&page=&limit=`
   → `{ data: Listing[], meta: { page, limit, total, totalPages } }`.
@@ -66,8 +77,9 @@ Only `PENDING` may transition; all others are terminal.
 - `PATCH /api/offers/:id/status` (auth) — body `{ status }`, one of:
   - `ACCEPTED` — listing owner only. Transactional: guarded inventory
     decrement + exactly-one deal (upsert on unique `offerId`) + offer→ACCEPTED.
-    409 on insufficient stock or repeat; safe under concurrent accepts and
-    idempotent under retries.
+    409 on insufficient stock or when the offer is no longer `PENDING`
+    (repeat/double accept); safe under concurrent accepts and idempotent
+    under retries.
   - `DECLINED` — listing owner only, from `PENDING` only.
   - `WITHDRAWN` — offer buyer only, from `PENDING` only.
   - `EXPIRED` — offer buyer only, from `PENDING` only.
@@ -79,6 +91,17 @@ Deal statuses: `PENDING → CONFIRMED → COMPLETED`, or `→ CANCELLED` from
 `PENDING`/`CONFIRMED`. `COMPLETED`/`CANCELLED` are terminal; never hard-deleted.
 
 - `GET /api/deals/mine` (auth) — deals where my profile is buyer or seller.
+- `GET /api/deals/:id/history` (auth, buyer or seller of the deal) —
+  audit-sourced status history, oldest first:
+  `{ data: [{ id, action, actorId, payload, createdAt }] }`.
+  Includes the deal's own `DEAL_*` transition entries plus the
+  `OFFER_ACCEPTED` event that created it; `payload` is the parsed audit JSON
+  or `null`. Outsider → 403; unknown id → 404.
+- `PATCH /api/deals/:id/status` (auth, buyer or seller of the deal) — body
+  `{ status }`, one of `CONFIRMED`, `COMPLETED`, `CANCELLED`.
+  - `PENDING → CONFIRMED | CANCELLED`; `CONFIRMED → COMPLETED | CANCELLED`.
+  - `COMPLETED` sets `executedAt`. Anything else → 400; outsider → 403;
+    unknown id → 404. Audited as `DEAL_EXECUTED` / `DEAL_CANCELLED`.
 
 ## Inventory behavior (all-or-nothing)
 

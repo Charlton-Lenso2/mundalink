@@ -6,65 +6,76 @@ export type CommodityCategory =
   | 'Livestock'
   | 'Inputs'
 
-export type ListingStatus = 'Available' | 'Reserved' | 'Sold'
-export type OfferStatus = 'Pending' | 'Accepted' | 'Declined' | 'Withdrawn' | 'Expired'
-export type DealStatus = 'Pending' | 'In transit' | 'Completed' | 'Disputed'
+export type ListingStatus = 'DRAFT' | 'ACTIVE' | 'REJECTED' | 'SOLD'
+export type OfferStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN' | 'EXPIRED'
+export type DealStatus = 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED'
 
 export interface Listing {
   id: string
   title: string
-  description: string
-  commodity: string
-  category: CommodityCategory
-  quantity: number
-  unit: string
-  price: number
+  description: string | null
+  commodity: string | null
+  category: string | null
+  quantity: string
+  unit: string | null
+  pricePerUnit: string
+  availableQuantity: string
   currency: string
-  location: string
+  location: string | null
   sellerId: string
   sellerName: string
   status: ListingStatus
   createdAt: string
+  updatedAt?: string
 }
 
 export interface Offer {
   id: string
   listingId: string
+  listingTitle?: string
   buyerId: string
   buyerName: string
-  quantity: number
-  price: number
+  sellerId?: string
+  offeredQuantity: string
+  offeredPrice: string
   currency: string
-  message?: string
+  message: string | null
   status: OfferStatus
   createdAt: string
-  expiresAt?: string
+  updatedAt?: string
+  expiresAt?: string | null
 }
 
 export interface Deal {
   id: string
+  offerId: string
   listingId: string
+  listingTitle?: string
   buyerId: string
   sellerId: string
   buyerName: string
   sellerName: string
-  commodity: string
-  quantity: number
-  totalPrice: number
+  agreedQuantity: string
+  agreedPrice: string
   currency: string
   status: DealStatus
-  location: string
+  createdAt: string
+  updatedAt?: string
+  executedAt?: string | null
 }
 
 export interface Profile {
   id: string
-  name: string
-  email: string
-  phone: string
-  location: string
-  farmName: string
-  role: 'Farmer' | 'Buyer' | 'Aggregator'
-  bio: string
+  firebaseUid?: string
+  displayName: string | null
+  email: string | null
+  phone: string | null
+  city: string | null
+  region: string | null
+  country: string | null
+  role: 'SELLER' | 'BUYER' | 'ADMIN' | 'OBSERVER'
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface ApiHealthResponse {

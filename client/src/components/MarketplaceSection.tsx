@@ -1,4 +1,6 @@
-﻿import type { Listing } from '../types'
+﻿import type { FormEvent } from 'react'
+import type { Listing } from '../types'
+import { StatusBadge } from './StatusBadge'
 
 interface MarketplaceSectionProps {
   listings: Listing[]
@@ -11,33 +13,18 @@ interface MarketplaceSectionProps {
   page: number
   pageCount: number
   onPageChange: (nextPage: number) => void
-  selectedListingId: string | null
   onSelectListing: (id: string) => void
-  onOfferSubmit: () => void
+  loading: boolean
 }
 
-const money = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
-})
 
-export function MarketplaceSection({
-  listings,
-  searchTerm,
-  onSearchChange,
-  category,
-  onCategoryChange,
-  location,
-  onLocationChange,
-  page,
-  pageCount,
-  onPageChange,
-  selectedListingId,
-  onSelectListing,
-  onOfferSubmit,
-}: MarketplaceSectionProps) {
-  const selectedListing = listings.find((listing) => listing.id === selectedListingId) ?? listings[0] ?? null
+export function MarketplaceSection(props: MarketplaceSectionProps) {
+  const { listings, searchTerm, onSearchChange, category, onCategoryChange } = props
+  const { location, onLocationChange, page, pageCount, onPageChange, onSelectListing, loading } = props
+
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault()
+  }
 
   return (
     <section className="screen marketplace-screen">
@@ -48,7 +35,7 @@ export function MarketplaceSection({
         </div>
       </div>
 
-      <div className="toolbar">
+      <form className="toolbar" onSubmit={submitSearch} role="search">
         <label className="field inline-field search-field">
           <span>Search</span>
           <input value={searchTerm} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search commodity or location" />
@@ -78,79 +65,52 @@ export function MarketplaceSection({
             <option>Gweru</option>
           </select>
         </label>
-      </div>
+      </form>
 
-      <div className="marketplace-grid">
-        <div className="listing-list">
+      {loading ? (
+        <div className="listing-skeletons" aria-label="Loading listings">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton-card" aria-hidden="true">
+              <div className="skeleton-line wide" />
+              <div className="skeleton-line" />
+              <div className="skeleton-line short" />
+            </div>
+          ))}
+        </div>
+      ) : listings.length === 0 ? (
+        <div className="empty-state">No listings match these filters. Try clearing the search or choosing a different category.</div>
+      ) : (
+        <div className="listing-grid">
           {listings.map((listing) => (
             <button
               key={listing.id}
               type="button"
-              className={selectedListing?.id === listing.id ? 'listing-card selected' : 'listing-card'}
+              className="listing-card"
               onClick={() => onSelectListing(listing.id)}
             >
               <div className="listing-header space-between">
-                <span className="listing-badge">{listing.category}</span>
-                <span className={listing.status === 'Available' ? 'status-pill available' : 'status-pill'}>{listing.status}</span>
+                <span className="listing-badge">{listing.category ?? 'Produce'}</span>
+                <StatusBadge status={listing.status} />
               </div>
               <h3>{listing.title}</h3>
               <div className="meta-row">
-                <span>{listing.quantity} {listing.unit}</span>
-                <span>{listing.location}</span>
+                <span>{listing.quantity} {listing.unit ?? ''}</span>
+                <span>{listing.location ?? 'Location on request'}</span>
               </div>
               <div className="price-line">
-                <strong>{money.format(listing.price)}</strong>
-                <span>per {listing.unit}</span>
+                <strong>{listing.pricePerUnit} {listing.currency}</strong>
+                <span>per {listing.unit ?? 'unit'}</span>
               </div>
               <p>{listing.sellerName}</p>
             </button>
           ))}
-
-          <div className="pagination">
-            <button type="button" disabled={page === 1} onClick={() => onPageChange(Math.max(1, page - 1))}>Previous</button>
-            <span>{page} / {pageCount}</span>
-            <button type="button" disabled={page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, page + 1))}>Next</button>
-          </div>
         </div>
+      )}
 
-        {selectedListing ? (
-          <aside className="listing-detail">
-            <div className="detail-topbar">
-              <span className="listing-badge">{selectedListing.category}</span>
-              <span className={selectedListing.status === 'Available' ? 'status-pill available' : 'status-pill'}>{selectedListing.status}</span>
-            </div>
-            <h3>{selectedListing.title}</h3>
-            <p className="detail-subtitle">{selectedListing.commodity}</p>
-            <div className="price-display">{money.format(selectedListing.price)}<span> per {selectedListing.unit}</span></div>
-            <dl className="detail-meta">
-              <div>
-                <dt>Quantity</dt>
-                <dd>{selectedListing.quantity} {selectedListing.unit}</dd>
-              </div>
-              <div>
-                <dt>Location</dt>
-                <dd>{selectedListing.location}</dd>
-              </div>
-              <div>
-                <dt>Seller</dt>
-                <dd>{selectedListing.sellerName}</dd>
-              </div>
-              <div>
-                <dt>Posted</dt>
-                <dd>{new Date(selectedListing.createdAt).toLocaleDateString('en-ZW', { dateStyle: 'medium' })}</dd>
-              </div>
-            </dl>
-            <p>{selectedListing.description}</p>
-
-            <form className="offer-form" onSubmit={(event) => {
-              event.preventDefault()
-              onOfferSubmit()
-            }}>
-              <h4>Submit an offer</h4>
-              <button type="submit" className="primary-button">Create offer</button>
-            </form>
-          </aside>
-        ) : null}
+      <div className="pagination">
+        <button type="button" disabled={page <= 1} onClick={() => onPageChange(Math.max(1, page - 1))}>Previous</button>
+        <span>{page} / {Math.max(1, pageCount)}</span>
+        <button type="button" disabled={page >= Math.max(1, pageCount)} onClick={() => onPageChange(Math.min(Math.max(1, pageCount), page + 1))}>Next</button>
       </div>
     </section>
   )

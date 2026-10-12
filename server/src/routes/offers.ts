@@ -10,9 +10,9 @@ import { prisma } from "../modules/prisma";
 import { PrismaOfferService } from "../modules/services/offers-core";
 import { OfferAcceptanceService } from "../modules/services/offers-accept";
 import { OfferBodyValidation } from "../modules/validation/offer";
-import { OFFER_STATUS, toOfferRecord } from "../modules/types/offer";
+import { OFFER_STATUS } from "../modules/types/offer";
 import { auditLog } from "../modules/auditLog";
-import { badRequestError, forbiddenError, notFoundError } from "../middleware/error-handler";
+import { badRequestError, notFoundError } from "../middleware/error-handler";
 
 export const offersRouter = Router();
 
@@ -87,41 +87,45 @@ offersRouter.patch("/:id/status", authenticate(), async (req: Request, res: Resp
     }
 
     if (status === OFFER_STATUS.DECLINED) {
-      const row = await (req.prisma ?? prisma).offer.findUnique({
-        where: { id: req.params.id as string },
-        select: { status: true, listing: { select: { sellerId: true } } },
-      });
-      if (!row) notFoundError(`Offer not found: ${req.params.id}`);
-      if ((row as { listing: { sellerId: string } }).listing.sellerId !== pid) {
-        forbiddenError("Only the listing owner can decline");
-      }
-      if ((row as { status: string }).status !== OFFER_STATUS.PENDING) {
-        badRequestError("Only PENDING offers can be declined");
-      }
-      const updated = await (req.prisma ?? prisma).offer.update({
-        where: { id: req.params.id as string },
-        data: { status: OFFER_STATUS.DECLINED },
-      });
+      // Business rules (owner-only, PENDING-only) live in the service, where
+      // they run inside the same transaction as the status change.
+      const offer = await svc.decline(req.params.id as string, pid);
       await auditLog({
         actorId: pid,
         actorType: "PROFILE",
         entityType: "offer",
-        entityId: updated.id,
+        entityId: offer.id,
         action: "OFFER_DECLINED",
         prismaClient: req.prisma ?? prisma,
       });
-      res.json({ data: toOfferRecord(updated) });
+      res.json({ data: offer });
       return;
     }
 
     if (status === OFFER_STATUS.WITHDRAWN) {
       const offer = await svc.withdraw(req.params.id as string, pid);
+      await auditLog({
+        actorId: pid,
+        actorType: "PROFILE",
+        entityType: "offer",
+        entityId: offer.id,
+        action: "OFFER_WITHDRAWN",
+        prismaClient: req.prisma ?? prisma,
+      });
       res.json({ data: offer });
       return;
     }
 
     if (status === OFFER_STATUS.EXPIRED) {
       const offer = await svc.expire(req.params.id as string, pid, new Date());
+      await auditLog({
+        actorId: pid,
+        actorType: "PROFILE",
+        entityType: "offer",
+        entityId: offer.id,
+        action: "OFFER_EXPIRED",
+        prismaClient: req.prisma ?? prisma,
+      });
       res.json({ data: offer });
       return;
     }

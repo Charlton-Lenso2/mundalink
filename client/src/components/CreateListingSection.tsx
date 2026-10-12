@@ -6,7 +6,8 @@
     category: string
     quantity: string
     unit: string
-    price: string
+    pricePerUnit: string
+    availableQuantity: string
     currency: string
     location: string
   }
@@ -65,7 +66,7 @@ export function CreateListingSection({ form, onFieldChange, onSubmit, submitting
         <div className="split-fields">
           <label className="field">
             <span>Quantity</span>
-            <input type="number" min="1" value={form.quantity} onChange={(event) => onFieldChange('quantity', event.target.value)} required />
+            <input type="number" min="0" step="any" value={form.quantity} onChange={(event) => onFieldChange('quantity', event.target.value)} required />
           </label>
           <label className="field">
             <span>Unit</span>
@@ -73,10 +74,15 @@ export function CreateListingSection({ form, onFieldChange, onSubmit, submitting
           </label>
         </div>
 
+        <label className="field">
+          <span>Available quantity (same unit)</span>
+          <input type="number" min="0" step="any" value={form.availableQuantity} onChange={(event) => onFieldChange('availableQuantity', event.target.value)} required />
+        </label>
+
         <div className="split-fields">
           <label className="field">
-            <span>Price</span>
-            <input type="number" min="1" value={form.price} onChange={(event) => onFieldChange('price', event.target.value)} required />
+            <span>Price per unit</span>
+            <input type="number" min="0" step="any" value={form.pricePerUnit} onChange={(event) => onFieldChange('pricePerUnit', event.target.value)} required />
           </label>
           <label className="field">
             <span>Currency</span>

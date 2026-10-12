@@ -1,22 +1,20 @@
 import type { Deal, Listing, Offer, Profile } from '../types'
+import farmImage from '../assets/farm.jpg'
+import { StatusBadge } from './StatusBadge'
 
 interface DashboardSectionProps {
   profile: Profile | null
   listings: Listing[]
   offers: Offer[]
   deals: Deal[]
+  onOpenListing: (id: string) => void
 }
 
-const money = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
-})
-
-export function DashboardSection({ profile, listings, offers, deals }: DashboardSectionProps) {
+export function DashboardSection({ profile, listings, offers, deals, onOpenListing }: DashboardSectionProps) {
+  const availableListings = listings.filter((listing) => listing.status === 'ACTIVE').length
   const stats = [
-    { label: 'Live listings', value: String(listings.length) },
-    { label: 'Open offers', value: String(offers.filter((offer) => offer.status === 'Pending').length) },
+    { label: 'Available listings', value: String(availableListings) },
+    { label: 'Open offers', value: String(offers.filter((offer) => offer.status === 'PENDING').length) },
     { label: 'Agreed deals', value: String(deals.length) },
     { label: 'Profile status', value: profile ? 'Ready' : 'Draft' },
   ]
@@ -27,6 +25,34 @@ export function DashboardSection({ profile, listings, offers, deals }: Dashboard
         <div>
           <span className="eyebrow">Dashboard</span>
           <h2>Market overview</h2>
+        </div>
+      </div>
+
+      <div className="dashboard-hero">
+        <img
+          className="dashboard-hero-image"
+          src={farmImage}
+          alt="Rows of growing crops stretching across a green field beneath a bright sky"
+        />
+        <div className="dashboard-hero-overlay">
+          <div className="glass-panel hero-copy">
+            <span className="eyebrow light">Built for the whole journey</span>
+            <h3>From the first listing to an agreement you can follow.</h3>
+            <p>Keep your produce, buyer offers, and agreed deals together in one clear view.</p>
+          </div>
+
+          <div className="glass-panel hero-journey-panel" aria-label="Marketplace transaction journey">
+            <span className="panel-kicker">Your marketplace journey</span>
+            <ol className="journey-steps">
+              <li><span>01</span> List produce</li>
+              <li><span>02</span> Discuss an offer</li>
+              <li><span>03</span> Record an agreement</li>
+              <li className="journey-next">
+                <span className="journey-step-number">04</span>
+                <span className="journey-step-label">Coordinate fulfilment <small>Coming next</small></span>
+              </li>
+            </ol>
+          </div>
         </div>
       </div>
 
@@ -45,16 +71,16 @@ export function DashboardSection({ profile, listings, offers, deals }: Dashboard
           {profile ? (
             <>
               <div className="profile-summary">
-                <div className="avatar">{profile.name.charAt(0)}</div>
+                <div className="avatar">{profile.displayName?.charAt(0) ?? '?'}</div>
                 <div>
-                  <strong>{profile.name}</strong>
-                  <p>{profile.farmName}</p>
+                  <strong>{profile.displayName ?? 'Name not added'}</strong>
+                  <p>{profile.email ?? 'Marketplace profile'}</p>
                 </div>
               </div>
               <ul className="summary-list">
                 <li><span>Role</span><strong>{profile.role}</strong></li>
-                <li><span>Location</span><strong>{profile.location}</strong></li>
-                <li><span>Phone</span><strong>{profile.phone}</strong></li>
+                <li><span>Location</span><strong>{[profile.city, profile.region, profile.country].filter(Boolean).join(', ') || 'Not added'}</strong></li>
+                <li><span>Phone</span><strong>{profile.phone || 'Not added'}</strong></li>
               </ul>
             </>
           ) : (
@@ -69,13 +95,13 @@ export function DashboardSection({ profile, listings, offers, deals }: Dashboard
           ) : (
             <div className="stack-list">
               {listings.slice(0, 3).map((listing) => (
-                <div key={listing.id} className="stack-item">
+                <button key={listing.id} type="button" className="stack-item link" onClick={() => onOpenListing(listing.id)}>
                   <div>
                     <strong>{listing.title}</strong>
                     <span>{listing.location}</span>
                   </div>
-                  <span className={listing.status === 'Available' ? 'status-pill available' : 'status-pill'}>{listing.status}</span>
-                </div>
+                  <StatusBadge status={listing.status} />
+                </button>
               ))}
             </div>
           )}
@@ -84,7 +110,7 @@ export function DashboardSection({ profile, listings, offers, deals }: Dashboard
 
       <div className="dashboard-grid two-up">
         <div className="dashboard-panel">
-          <h3>Incoming offers</h3>
+          <h3>Recent offers</h3>
           {offers.length === 0 ? (
             <div className="empty-state compact">No new offers yet.</div>
           ) : (
@@ -93,9 +119,9 @@ export function DashboardSection({ profile, listings, offers, deals }: Dashboard
                 <div key={offer.id} className="offer-card">
                   <div>
                     <strong>{offer.buyerName}</strong>
-                    <span>{offer.quantity} units @ {money.format(offer.price)}</span>
+                    <span>{offer.offeredQuantity} units @ {offer.offeredPrice} {offer.currency}</span>
                   </div>
-                  <span className="status-pill">{offer.status}</span>
+                  <StatusBadge status={offer.status} />
                 </div>
               ))}
             </div>
@@ -111,10 +137,10 @@ export function DashboardSection({ profile, listings, offers, deals }: Dashboard
               {deals.map((deal) => (
                 <div key={deal.id} className="deal-item">
                   <div>
-                    <strong>{deal.commodity}</strong>
-                    <span>{deal.quantity} units</span>
+                    <strong>{deal.listingTitle ?? 'Agreed transaction'}</strong>
+                    <span>{deal.agreedQuantity} units</span>
                   </div>
-                  <span className="status-pill available">{deal.status}</span>
+                  <StatusBadge status={deal.status} />
                 </div>
               ))}
             </div>
