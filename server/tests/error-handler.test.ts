@@ -91,6 +91,17 @@ describe("errorHandler Prisma code mapping", () => {
     expect(out.code).toBe("NotFoundError");
   });
 
+  it("maps malformed JSON body SyntaxError to 400", () => {
+    const error = new SyntaxError(
+      "Unexpected token t in JSON at position 1"
+    ) as SyntaxError & { status: number; body?: unknown };
+    error.status = 400;
+    error.body = {};
+    const out = run(error);
+    expect(out.status).toBe(400);
+    expect(out.code).toBe("BadRequestError");
+  });
+
   it("maps P1001 (database unreachable) to 503", () => {
     const out = run(prismaError("P1001"));
     expect(out.status).toBe(503);

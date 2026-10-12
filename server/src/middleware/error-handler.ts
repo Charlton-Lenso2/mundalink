@@ -57,6 +57,17 @@ export function errorHandler(
     return;
   }
 
+  // Malformed JSON body: body-parser raises a SyntaxError carrying a 4xx
+  // status. That is a client mistake, not an internal server failure.
+  if (
+    error instanceof SyntaxError &&
+    "body" in error &&
+    typeof (error as { status?: unknown }).status === "number"
+  ) {
+    sendError(res, new BadRequestError("Malformed JSON in request body"), req);
+    return;
+  }
+
   // Prisma's known safe errors -> map to HTTP semantics.
   // NB: raw driver messages can contain constraint/table fragments, so we
   // return generic messages and log the raw error server-side only.
