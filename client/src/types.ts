@@ -23,7 +23,7 @@ export interface Listing {
   currency: string
   location: string | null
   sellerId: string
-  sellerName: string
+  sellerName?: string
   status: ListingStatus
   createdAt: string
   updatedAt?: string
@@ -32,13 +32,15 @@ export interface Listing {
 export interface Offer {
   id: string
   listingId: string
-  listingTitle?: string
   buyerId: string
-  buyerName: string
+  buyerName?: string
   sellerId?: string
+  sellerName?: string
+  listingTitle?: string
+  unit?: string | null
   offeredQuantity: string
   offeredPrice: string
-  currency: string
+  currency?: string
   message: string | null
   status: OfferStatus
   createdAt: string
@@ -53,11 +55,12 @@ export interface Deal {
   listingTitle?: string
   buyerId: string
   sellerId: string
-  buyerName: string
-  sellerName: string
+  buyerName?: string
+  sellerName?: string
   agreedQuantity: string
   agreedPrice: string
-  currency: string
+  currency?: string
+  unit?: string | null
   status: DealStatus
   createdAt: string
   updatedAt?: string
@@ -81,7 +84,7 @@ export interface Profile {
 export interface ApiHealthResponse {
   ok: boolean
   status: string
-  mode: 'live' | 'mock'
+  mode: 'live' | 'mock' | 'unavailable'
   message: string
 }
 

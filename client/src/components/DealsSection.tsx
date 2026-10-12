@@ -31,10 +31,10 @@ export function DealsSection({ deals, onTransition, busyId }: DealsSectionProps)
             <div className="section-header compact">
               <div>
                 <span className="eyebrow">{deal.listingTitle ?? deal.listingId}</span>
-                <h3>{deal.agreedQuantity} units @ {deal.agreedPrice} {deal.currency}</h3>
+                <h3>{deal.agreedQuantity} {deal.unit ?? 'units'} @ {deal.agreedPrice}{deal.currency ? ` ${deal.currency}` : ''}</h3>
               </div>
             </div>
-            <p className="muted">{deal.buyerName} · {deal.sellerName}</p>
+            <p className="muted">{deal.buyerName ?? 'Buyer'} · {deal.sellerName ?? 'Seller'}</p>
             <DealTimeline deal={deal} />
             {nextActions(deal.status).length > 0 ? (
               <div className="offer-actions">

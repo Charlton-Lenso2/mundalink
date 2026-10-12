@@ -4,6 +4,7 @@
 import { Decimal } from "decimal.js";
 import { badRequestError } from "../../middleware/error-handler";
 import { OFFER_STATUS, type OfferStatus } from "../types/offer";
+import { validateStoredDecimal } from "./numeric";
 
 export interface ParsedCreateOffer {
   listingId: string;
@@ -24,8 +25,14 @@ export class OfferBodyValidation {
     if (!input || typeof input !== "object") badRequestError("Request body must be an object");
     const body = input as Record<string, unknown>;
     const listingId = OfferBodyValidation.nonEmpty(body, "listingId");
-    const offeredQuantity = OfferBodyValidation.positiveDecimal(body, "offeredQuantity");
-    const offeredPrice = OfferBodyValidation.nonNegativeDecimal(body, "offeredPrice");
+    const offeredQuantity = validateStoredDecimal(
+      OfferBodyValidation.positiveDecimal(body, "offeredQuantity"),
+      "offeredQuantity",
+    );
+    const offeredPrice = validateStoredDecimal(
+      OfferBodyValidation.nonNegativeDecimal(body, "offeredPrice"),
+      "offeredPrice",
+    );
     const message =
       body.message === undefined || body.message === null
         ? null

@@ -14,6 +14,7 @@ import { prisma } from "../modules/prisma";
 
 export interface AuthRequest extends Request {
   firebaseUid?: string;
+  firebaseEmail?: string | null;
 }
 
 export interface AuthOptions {
@@ -47,7 +48,7 @@ export function authenticate(options: AuthOptions = {}): (
       return;
     }
 
-    let decoded: { uid: string } | null = null;
+    let decoded: { uid: string; email?: string } | null = null;
 
     try {
       const { auth } = getFirebaseAdmin();
@@ -63,6 +64,7 @@ export function authenticate(options: AuthOptions = {}): (
     // The verified UID is the only identity proof we trust. Anything else
     // (body-supplied uid, session id, etc.) is ignored.
     req.firebaseUid = decoded.uid;
+    req.firebaseEmail = decoded.email ?? null;
 
     // Attach the Prisma client once for the duration of this request.
     if (!req.prisma) {

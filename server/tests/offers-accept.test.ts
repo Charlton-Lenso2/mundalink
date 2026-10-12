@@ -40,6 +40,7 @@ function makeState(): FakeState {
 }
 
 function fakePrisma(state: FakeState) {
+  let transactionTail: Promise<void> = Promise.resolve();
   const client = {
     offer: {
       findUnique: async (args?: { where?: { id?: string } }) => {
@@ -49,6 +50,16 @@ function fakePrisma(state: FakeState) {
       update: async (args: { where: { id: string }; data: Record<string, unknown> }) => {
         Object.assign(state.offer, args.data, { updatedAt: new Date() });
         return { ...state.offer };
+      },
+      updateMany: async (args: {
+        where: { id: string; status: string };
+        data: Record<string, unknown>;
+      }) => {
+        if (args.where.id !== state.offer.id || args.where.status !== state.offer.status) {
+          return { count: 0 };
+        }
+        Object.assign(state.offer, args.data, { updatedAt: new Date() });
+        return { count: 1 };
       },
     },
     inventory: {
@@ -94,6 +105,12 @@ function fakePrisma(state: FakeState) {
       },
     },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const previous = transactionTail;
+      let release!: () => void;
+      transactionTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
       // Model DB semantics: any throw inside the transaction restores the
       // pre-transaction state (rollback) and rethrows.
       const snapshot = structuredClone(state);
@@ -102,6 +119,8 @@ function fakePrisma(state: FakeState) {
       } catch (err) {
         Object.assign(state, snapshot);
         throw err;
+      } finally {
+        release();
       }
     },
   };
@@ -154,6 +173,25 @@ describe("OfferAcceptanceService.accept", () => {
     expect(err.message).toMatch(/Cannot accept an offer in status ACCEPTED/);
     expect(state.deals).toHaveLength(1);
     expect(state.inventory.availableQuantity).toBe("5");
+  });
+
+  it("concurrent accept requests for one offer reserve inventory only once", async () => {
+    const state = makeState();
+    const svc = new OfferAcceptanceService(fakePrisma(state) as never);
+    const results = await Promise.allSettled([
+      svc.accept({ offerId: "off_1", buyerId: "buyer_1", sellerId: "seller_1" }),
+      svc.accept({ offerId: "off_1", buyerId: "buyer_1", sellerId: "seller_1" }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejectedResult = results.find((result) => result.status === "rejected");
+    expect(rejectedResult?.status).toBe("rejected");
+    if (rejectedResult?.status === "rejected") {
+      expect((rejectedResult.reason as HttpErr).statusCode).toBe(409);
+    }
+    expect(state.inventory.availableQuantity).toBe("5");
+    expect(state.listing.availableQuantity).toBe("5");
+    expect(state.deals).toHaveLength(1);
   });
 
   it("rejects a non-owner (non-seller) accept with 403", async () => {

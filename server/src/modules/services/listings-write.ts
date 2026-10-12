@@ -3,10 +3,11 @@
 // These methods own persistence and audit logging for listing mutations.
 
 import type { PrismaClient } from "@prisma/client";
+import { Decimal } from "decimal.js";
 import { ListingValidation } from "../validation/listing";
 import { auditLog } from "../auditLog";
 import { toListingRecord, type ListingStatus } from "../types/listing";
-import { badRequestError, forbiddenError, notFoundError } from "../../middleware/error-handler";
+import { badRequestError, conflictError, forbiddenError, notFoundError } from "../../middleware/error-handler";
 
 // Documented status lifecycle (see docs/api-contract.md and types/listing.ts):
 //   DRAFT   -> ACTIVE | REJECTED
@@ -109,6 +110,38 @@ export class ListingWriteService {
     }
 
     const listing = await prismaClient.$transaction(async (tx) => {
+      const current = await tx.listing.findUnique({
+        where: { id },
+        select: {
+          quantity: true,
+          inventory: { select: { availableQuantity: true } },
+        },
+      });
+      if (!current) notFoundError(`Listing not found: ${id}`);
+      if (!current.inventory) conflictError("Listing inventory is inconsistent and cannot be updated.");
+
+      const currentAvailable = new Decimal(String(current.inventory.availableQuantity));
+      const currentQuantity = new Decimal(String(current.quantity));
+      const committedQuantity = currentQuantity.minus(currentAvailable);
+      const nextQuantity = input.quantity ?? currentQuantity;
+      const nextAvailable = input.availableQuantity ?? currentAvailable;
+      if (nextAvailable.gt(nextQuantity)) {
+        badRequestError("availableQuantity cannot exceed quantity");
+      }
+      if (nextQuantity.lt(committedQuantity.plus(nextAvailable))) {
+        badRequestError("quantity cannot be less than already committed plus available quantity");
+      }
+
+      if (input.availableQuantity !== undefined) {
+        const inventoryUpdate = await tx.inventory.updateMany({
+          where: { listingId: id, availableQuantity: currentAvailable.toString() },
+          data: { availableQuantity: input.availableQuantity.toString() },
+        });
+        if (inventoryUpdate.count !== 1) {
+          conflictError("Inventory changed while updating this listing. Refresh and try again.");
+        }
+      }
+
       const updated = await tx.listing.update({
         where: { id },
       data: {

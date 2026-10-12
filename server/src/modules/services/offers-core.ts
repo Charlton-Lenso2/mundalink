@@ -33,6 +33,12 @@ export class PrismaOfferService {
         ],
       },
       orderBy: { createdAt: "desc" },
+      include: {
+        buyer: { select: { displayName: true } },
+        listing: {
+          include: { seller: { select: { displayName: true } } },
+        },
+      },
     });
     return rows.map(toOfferRecord);
   }

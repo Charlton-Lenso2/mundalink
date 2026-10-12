@@ -8,15 +8,19 @@ interface DashboardSectionProps {
   offers: Offer[]
   deals: Deal[]
   onOpenListing: (id: string) => void
+  onOpenProfile: () => void
 }
 
-export function DashboardSection({ profile, listings, offers, deals, onOpenListing }: DashboardSectionProps) {
+export function DashboardSection({ profile, listings, offers, deals, onOpenListing, onOpenProfile }: DashboardSectionProps) {
   const availableListings = listings.filter((listing) => listing.status === 'ACTIVE').length
   const stats = [
-    { label: 'Available listings', value: String(availableListings) },
+    { label: 'Active listings shown', value: String(availableListings) },
     { label: 'Open offers', value: String(offers.filter((offer) => offer.status === 'PENDING').length) },
     { label: 'Agreed deals', value: String(deals.length) },
-    { label: 'Profile status', value: profile ? 'Ready' : 'Draft' },
+    {
+      label: 'Profile status',
+      value: profile?.displayName && profile.city && profile.phone ? 'Details added' : 'Needs details',
+    },
   ]
 
   return (
@@ -84,14 +88,17 @@ export function DashboardSection({ profile, listings, offers, deals, onOpenListi
               </ul>
             </>
           ) : (
-            <div className="empty-state compact">Complete your profile to unlock trusted buyer interactions.</div>
+            <div className="empty-state compact">
+              <p>Complete your profile details to help trading partners identify your business.</p>
+              <button type="button" className="ghost-button small" onClick={onOpenProfile}>Complete profile</button>
+            </div>
           )}
         </div>
 
         <div className="dashboard-panel">
-          <h3>Your listings</h3>
+          <h3>Marketplace listings</h3>
           {listings.length === 0 ? (
-            <div className="empty-state compact">No listings yet. Add one to begin trading.</div>
+            <div className="empty-state compact">No listings are available in the current results.</div>
           ) : (
             <div className="stack-list">
               {listings.slice(0, 3).map((listing) => (
@@ -118,8 +125,8 @@ export function DashboardSection({ profile, listings, offers, deals, onOpenListi
               {offers.slice(0, 3).map((offer) => (
                 <div key={offer.id} className="offer-card">
                   <div>
-                    <strong>{offer.buyerName}</strong>
-                    <span>{offer.offeredQuantity} units @ {offer.offeredPrice} {offer.currency}</span>
+                    <strong>{offer.buyerName ?? 'Buyer'}</strong>
+                    <span>{offer.offeredQuantity} {offer.unit ?? 'units'} @ {offer.offeredPrice}{offer.currency ? ` ${offer.currency}` : ''}</span>
                   </div>
                   <StatusBadge status={offer.status} />
                 </div>
@@ -138,7 +145,7 @@ export function DashboardSection({ profile, listings, offers, deals, onOpenListi
                 <div key={deal.id} className="deal-item">
                   <div>
                     <strong>{deal.listingTitle ?? 'Agreed transaction'}</strong>
-                    <span>{deal.agreedQuantity} units</span>
+                    <span>{deal.agreedQuantity} {deal.unit ?? 'units'}</span>
                   </div>
                   <StatusBadge status={deal.status} />
                 </div>

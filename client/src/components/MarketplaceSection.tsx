@@ -15,12 +15,14 @@ interface MarketplaceSectionProps {
   onPageChange: (nextPage: number) => void
   onSelectListing: (id: string) => void
   loading: boolean
+  error: string | null
+  onRetry: () => void
 }
 
 
 export function MarketplaceSection(props: MarketplaceSectionProps) {
   const { listings, searchTerm, onSearchChange, category, onCategoryChange } = props
-  const { location, onLocationChange, page, pageCount, onPageChange, onSelectListing, loading } = props
+  const { location, onLocationChange, page, pageCount, onPageChange, onSelectListing, loading, error, onRetry } = props
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault()
@@ -56,18 +58,26 @@ export function MarketplaceSection(props: MarketplaceSectionProps) {
 
         <label className="field inline-field">
           <span>Location</span>
-          <select value={location} onChange={(event) => onLocationChange(event.target.value)}>
-            <option>All</option>
-            <option>Harare</option>
-            <option>Mutoko</option>
-            <option>Bulawayo</option>
-            <option>Chinhoyi</option>
-            <option>Gweru</option>
-          </select>
+          <input
+            list="marketplace-location-options"
+            value={location === 'All' ? '' : location}
+            onChange={(event) => onLocationChange(event.target.value.trim() === '' ? 'All' : event.target.value)}
+            placeholder="All locations"
+          />
+          <datalist id="marketplace-location-options">
+            {['Harare', 'Mutoko', 'Bulawayo', 'Chinhoyi', 'Gweru', 'Chiredzi', 'Masvingo', 'Kwekwe', 'Kadoma', 'Marondera', 'Bindura', 'Victoria Falls', 'Rusape', 'Chipinge', 'Karoi'].map((town) => (
+              <option key={town} value={town} />
+            ))}
+          </datalist>
         </label>
       </form>
 
-      {loading ? (
+      {error ? (
+        <div className="notice error" role="alert">
+          <span>{error}</span>
+          <button type="button" className="ghost-button small" onClick={onRetry}>Retry</button>
+        </div>
+      ) : loading ? (
         <div className="listing-skeletons" aria-label="Loading listings">
           {[0, 1, 2].map((i) => (
             <div key={i} className="skeleton-card" aria-hidden="true">
@@ -78,7 +88,7 @@ export function MarketplaceSection(props: MarketplaceSectionProps) {
           ))}
         </div>
       ) : listings.length === 0 ? (
-        <div className="empty-state">No listings match these filters. Try clearing the search or choosing a different category.</div>
+        <div className="empty-state">No listings match these filters. Try clearing the search or adjusting the category and location filters.</div>
       ) : (
         <div className="listing-grid">
           {listings.map((listing) => (
@@ -101,7 +111,7 @@ export function MarketplaceSection(props: MarketplaceSectionProps) {
                 <strong>{listing.pricePerUnit} {listing.currency}</strong>
                 <span>per {listing.unit ?? 'unit'}</span>
               </div>
-              <p>{listing.sellerName}</p>
+              <p>{listing.sellerName ?? 'Seller details unavailable'}</p>
             </button>
           ))}
         </div>
@@ -115,5 +125,3 @@ export function MarketplaceSection(props: MarketplaceSectionProps) {
     </section>
   )
 }
-
-

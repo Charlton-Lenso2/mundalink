@@ -26,6 +26,11 @@ export interface DealRecord {
   executedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  listingTitle?: string;
+  currency?: string;
+  unit?: string | null;
+  buyerName?: string;
+  sellerName?: string;
 }
 
 export function toDealRecord(d: {
@@ -40,6 +45,9 @@ export function toDealRecord(d: {
   executedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  listing?: { title: string; currency: string; unit: string | null } | null;
+  buyer?: { displayName: string | null } | null;
+  seller?: { displayName: string | null } | null;
 }): DealRecord {
   return {
     id: d.id,
@@ -53,5 +61,14 @@ export function toDealRecord(d: {
     executedAt: d.executedAt,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
+    ...(d.listing
+      ? {
+          listingTitle: d.listing.title,
+          currency: d.listing.currency,
+          unit: d.listing.unit,
+        }
+      : {}),
+    ...(d.buyer?.displayName ? { buyerName: d.buyer.displayName } : {}),
+    ...(d.seller?.displayName ? { sellerName: d.seller.displayName } : {}),
   };
 }

@@ -77,4 +77,15 @@ describe("guardInventory", () => {
       })
     ).rejects.toThrow(/Insufficient inventory/);
   });
+
+  it("serializes competing reservations so inventory is never oversold", async () => {
+    const shared = fakePrisma("10");
+    const results = await Promise.allSettled([
+      guardInventory({ listingId: "lst_1", quantity: new Decimal("7"), prismaClient: shared as never }),
+      guardInventory({ listingId: "lst_1", quantity: new Decimal("7"), prismaClient: shared as never }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+  });
 });

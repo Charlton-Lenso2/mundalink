@@ -5,6 +5,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
+  updateProfile as updateFirebaseProfile,
   type User,
 } from 'firebase/auth'
 import './App.css'
@@ -21,11 +22,13 @@ import { ProfileSection } from './components/ProfileSection'
 import { ToastStack, type Toast } from './components/ToastStack'
 import { ApiError, api } from './lib/apiClient'
 import { auth } from './lib/firebase'
-import type { Deal, Listing, Offer, Profile } from './types'
+import type { ApiHealthResponse, Deal, Listing, Offer, Profile } from './types'
 
 export type View =
   | 'discover' | 'marketplace' | 'auth' | 'create'
   | 'dashboard' | 'profile' | 'listing' | 'offers' | 'deals'
+
+const protectedViews: View[] = ['create', 'dashboard', 'profile', 'offers', 'deals']
 
 type ListingForm = {
   title: string
@@ -64,9 +67,15 @@ function App() {
   const [offers, setOffers] = useState<Offer[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [apiHealth, setApiHealth] = useState({ ok: true, status: 'demo', mode: 'mock' as 'live' | 'mock', message: 'Connecting…' })
+  const [apiHealth, setApiHealth] = useState<ApiHealthResponse>({
+    ok: false,
+    status: 'connecting',
+    mode: 'unavailable',
+    message: 'Checking backend connection…',
+  })
   const [loading, setLoading] = useState(true)
   const [listingsLoading, setListingsLoading] = useState(false)
+  const [listingsError, setListingsError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [offline, setOffline] = useState(!navigator.onLine)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -140,11 +149,13 @@ function App() {
 
   const refreshListings = useCallback(async () => {
     setListingsLoading(true)
+    setListingsError(null)
     try {
       const result = await api.listings.list({
         search: searchTerm.trim() || undefined,
         category: selectedCategory === 'All' ? undefined : selectedCategory,
-        location: selectedLocation === 'All' ? undefined : selectedLocation,
+        location: selectedLocation !== 'All' && selectedLocation.trim() ? selectedLocation.trim() : undefined,
+        status: 'ACTIVE',
         page,
         limit: 9,
       })
@@ -152,7 +163,7 @@ function App() {
       setPageCount(Math.max(1, result.totalPages))
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Could not load listings.'
-      setError(message)
+      setListingsError(message)
     } finally {
       setListingsLoading(false)
     }
@@ -204,7 +215,10 @@ function App() {
     () => listings.find((entry) => entry.id === selectedListingId) ?? null,
     [listings, selectedListingId],
   )
-  const featuredListings = useMemo(() => listings.slice(0, 3), [listings])
+  const featuredListings = useMemo(
+    () => listings.filter((listing) => listing.status === 'ACTIVE').slice(0, 3),
+    [listings],
+  )
 
   const openListing = useCallback((id: string) => {
     setSelectedListingId(id)
@@ -217,16 +231,48 @@ function App() {
     setAuthError(null)
     setAuthLoading(true)
     try {
+      let newAccount = false
+      let profileSyncError: string | null = null
       if (authMode === 'signup') {
-        await createUserWithEmailAndPassword(auth, authForm.email, authForm.password)
+        const credential = await createUserWithEmailAndPassword(auth, authForm.email, authForm.password)
+        newAccount = true
+        setUser(credential.user)
+        const displayName = authForm.displayName.trim()
+        if (displayName) {
+          try {
+            await updateFirebaseProfile(credential.user, { displayName })
+          } catch (syncError) {
+            profileSyncError = syncError instanceof Error
+              ? syncError.message
+              : 'The account name could not be synced to Firebase.'
+          }
+        }
       } else {
-        await signInWithEmailAndPassword(auth, authForm.email, authForm.password)
+        const credential = await signInWithEmailAndPassword(auth, authForm.email, authForm.password)
+        setUser(credential.user)
       }
+      const displayName = authForm.displayName.trim()
       setAuthForm({ email: '', password: '', displayName: '' })
+      if (newAccount && displayName) {
+        try {
+          const updatedProfile = await api.profile.update({ displayName })
+          setProfile(updatedProfile)
+          setProfileDraft(updatedProfile)
+        } catch (syncError) {
+          const apiError = syncError instanceof Error
+            ? syncError.message
+            : 'The profile name could not be synced to MundaLink.'
+          profileSyncError = [profileSyncError, apiError].filter(Boolean).join(' ')
+        }
+      }
       await refreshUserData()
       await refreshListings()
-      pushToast('success', 'Signed in. Your offers and deals are loading.')
       setView('dashboard')
+      if (profileSyncError) {
+        pushToast('error', `Account created, but profile sync failed: ${profileSyncError}`)
+      } else {
+        pushToast('success', newAccount ? 'Account created. Your profile is ready to complete.' : 'Signed in. Your offers and deals are loading.')
+      }
     } catch (authFailure) {
       const message = authFailure instanceof Error ? authFailure.message : 'Authentication failed.'
       setAuthError(message)
@@ -236,16 +282,26 @@ function App() {
   }
 
   const handleLogout = async () => {
-    await signOut(auth)
-    setProfile(null)
-    setProfileDraft(null)
-    setOffers([])
-    setDeals([])
-    setView('discover')
-    setMobileNavOpen(false)
+    try {
+      await signOut(auth)
+      setProfile(null)
+      setProfileDraft(null)
+      setOffers([])
+      setDeals([])
+      setView('discover')
+      setMobileNavOpen(false)
+    } catch (logoutError) {
+      pushToast('error', logoutError instanceof Error ? logoutError.message : 'Could not sign out.')
+    }
   }
 
   const navigateTo = (nextView: View) => {
+    if (!user && protectedViews.includes(nextView)) {
+      setView('auth')
+      setMobileNavOpen(false)
+      pushToast('info', 'Sign in to access your account workspace.')
+      return
+    }
     setView(nextView)
     setMobileNavOpen(false)
     if (mobileNavOpen) menuButtonRef.current?.focus()
@@ -311,8 +367,9 @@ function App() {
         currency: listingForm.currency,
         location: listingForm.location.trim() || null,
       })
-      setListingForm(emptyListingForm)
       await refreshListings()
+      setListings((current) => [created, ...current.filter((listing) => listing.id !== created.id)].slice(0, 9))
+      setListingForm(emptyListingForm)
       pushToast('success', 'Listing saved as a draft. Publish it from the detail view.')
       openListing(created.id)
     } catch (createError) {
@@ -460,7 +517,7 @@ function App() {
   const renderDiscover = () => (
     <section className="discover-shell">
       <div className="discover-main">
-        <HeroSection onBrowse={() => setView('marketplace')} onCreate={() => setView('create')} />
+        <HeroSection onBrowse={() => setView('marketplace')} onCreate={() => navigateTo('create')} />
       </div>
       <FeaturePanel />
       <div className="section-header section-header-featured">
@@ -548,8 +605,8 @@ function App() {
         {renderNavigation(mobileNavOpen)}
 
         <div className="sidebar-footer">
-          <span className={apiHealth.mode === 'mock' ? 'status-badge demo' : 'status-badge live'}>
-            {apiHealth.mode === 'mock' ? 'Demonstration data' : 'Live API'}
+          <span className={apiHealth.mode === 'live' ? 'status-badge live' : 'status-badge demo'}>
+            {apiHealth.mode === 'mock' ? 'Demonstration data' : apiHealth.mode === 'live' ? 'Live API' : 'API unavailable'}
           </span>
           {user ? (
             <button type="button" className="sidebar-account" onClick={() => void handleLogout()}>
@@ -586,8 +643,8 @@ function App() {
             <div className="brand-mark" aria-hidden="true">M</div>
             <span>MundaLink</span>
           </div>
-          <span className={apiHealth.mode === 'mock' ? 'status-badge demo' : 'status-badge live'}>
-            {apiHealth.mode === 'mock' ? 'Demo' : 'Live'}
+          <span className={apiHealth.mode === 'live' ? 'status-badge live' : 'status-badge demo'}>
+            {apiHealth.mode === 'mock' ? 'Demo' : apiHealth.mode === 'live' ? 'Live' : 'Unavailable'}
           </span>
         </header>
 
@@ -595,15 +652,21 @@ function App() {
           {apiHealth.message ? <div className="api-banner" role="status">{apiHealth.message}</div> : null}
           {offline ? (
             <div className="offline-banner" role="alert">
-              You are offline. Listings and offers may be out of date; actions will retry when you reconnect.
+              You are offline. Listings and offers may be out of date; actions are unavailable until you reconnect.
             </div>
           ) : null}
           {error ? <div className="notice error">{error}</div> : null}
+          {listingsError && view !== 'marketplace' ? (
+            <div className="notice error" role="alert">
+              {listingsError}
+              <button type="button" className="ghost-button small" onClick={() => void refreshListings()}>Retry listings</button>
+            </div>
+          ) : null}
           <main className="main-content">
         {view === 'discover' && renderDiscover()}
         {view === 'marketplace' && (
           <MarketplaceSection
-            listings={listings}
+            listings={listings.filter((listing) => listing.status === 'ACTIVE')}
             searchTerm={searchTerm}
             onSearchChange={(value) => { setSearchTerm(value); setPage(1) }}
             category={selectedCategory}
@@ -615,6 +678,8 @@ function App() {
             onPageChange={setPage}
             onSelectListing={openListing}
             loading={listingsLoading}
+            error={listingsError}
+            onRetry={() => void refreshListings()}
           />
         )}
         {view === 'listing' && selectedListing && (
@@ -669,7 +734,7 @@ function App() {
           </div>
         )}
         {view === 'dashboard' && (
-          <DashboardSection profile={profile} listings={listings} offers={offers} deals={deals} onOpenListing={openListing} />
+          <DashboardSection profile={profile} listings={listings.filter((listing) => listing.status === 'ACTIVE')} offers={offers} deals={deals} onOpenListing={openListing} onOpenProfile={() => navigateTo('profile')} />
         )}
         {view === 'profile' && (
           <ProfileSection
@@ -719,4 +784,3 @@ function NavIcon({ name }: { name: View | 'menu' | 'close' | 'signout' }) {
 }
 
 export default App
-

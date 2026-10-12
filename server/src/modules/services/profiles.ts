@@ -10,10 +10,32 @@ export class ProfileService {
 
   async getOrInit(firebaseUid: string, email?: string | null): Promise<ProfileRecord> {
     const existing = await this.prisma.profile.findUnique({ where: { firebaseUid } });
-    if (existing) return toProfileRecord(existing);
-    const created = await this.prisma.profile.create({
-      data: { firebaseUid, email: email ?? null, role: "OBSERVER" },
-    });
+    if (existing) {
+      if (!existing.email && email) {
+        const updated = await this.prisma.profile.update({
+          where: { firebaseUid },
+          data: { email },
+        });
+        return toProfileRecord(updated);
+      }
+      return toProfileRecord(existing);
+    }
+    let created;
+    try {
+      created = await this.prisma.profile.create({
+        data: { firebaseUid, email: email ?? null, role: "OBSERVER" },
+      });
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as { code?: unknown }).code
+          : undefined;
+      if (code !== "P2002") throw error;
+
+      const raced = await this.prisma.profile.findUnique({ where: { firebaseUid } });
+      if (!raced) throw error;
+      return toProfileRecord(raced);
+    }
     await auditLog({
       actorId: created.id,
       actorType: "PROFILE",

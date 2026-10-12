@@ -56,13 +56,23 @@ function makeRow(overrides: Partial<Row> = {}): Row {
 }
 
 function makeState(row: Row | null = makeRow()): FakeState {
-  return { row, inventories: [], failInventoryCreate: false };
+  return {
+    row,
+    inventories: row ? [{ listingId: row.id, availableQuantity: row.availableQuantity }] : [],
+    failInventoryCreate: false,
+  };
 }
 
 function fakePrisma(state: FakeState) {
   const client = {
     listing: {
-      findUnique: async () => (state.row ? { ...state.row } : null),
+      findUnique: async () =>
+        state.row
+          ? {
+              ...state.row,
+              inventory: state.inventories.find((inventory) => inventory.listingId === state.row?.id) ?? null,
+            }
+          : null,
       update: async (args: { where: { id: string }; data: Record<string, unknown> }) => {
         const merged = state.row as Row;
         Object.assign(merged, args.data, { updatedAt: new Date() });
@@ -87,6 +97,17 @@ function fakePrisma(state: FakeState) {
         const created = { id: "inv_new", createdAt: new Date(), updatedAt: new Date(), ...args.data };
         state.inventories.push(created);
         return { ...created };
+      },
+      updateMany: async (args: {
+        where: { listingId: string; availableQuantity: string };
+        data: { availableQuantity: string };
+      }) => {
+        const inventory = state.inventories.find((entry) => entry.listingId === args.where.listingId);
+        if (!inventory || inventory.availableQuantity !== args.where.availableQuantity) {
+          return { count: 0 };
+        }
+        inventory.availableQuantity = args.data.availableQuantity;
+        return { count: 1 };
       },
     },
     auditLog: { create: async () => ({ id: "audit_1" }) },
@@ -217,6 +238,54 @@ describe("ListingWriteService.update status transitions", () => {
       ListingWriteService.update("missing", { status: "ACTIVE" }, "seller_1", fakePrisma(state) as never)
     );
     expect(err.statusCode).toBe(404);
+  });
+
+  it("keeps inventory and the listing availability mirror in sync", async () => {
+    const state = makeState(makeRow());
+    const out = await ListingWriteService.update(
+      "lst_1",
+      { availableQuantity: new Decimal("7") },
+      "seller_1",
+      fakePrisma(state) as never
+    );
+
+    expect(out.availableQuantity).toBe("7");
+    expect(state.row?.availableQuantity).toBe("7");
+    expect(state.inventories[0].availableQuantity).toBe("7");
+  });
+
+  it("rejects availability greater than the listing quantity", async () => {
+    const state = makeState(makeRow());
+    const err = await rejected(
+      ListingWriteService.update(
+        "lst_1",
+        { availableQuantity: new Decimal("11") },
+        "seller_1",
+        fakePrisma(state) as never
+      )
+    );
+
+    expect(err.statusCode).toBe(400);
+    expect(err.message).toMatch(/cannot exceed quantity/i);
+    expect(state.inventories[0].availableQuantity).toBe("10");
+  });
+
+  it("does not allow total quantity to erase previously committed inventory", async () => {
+    const row = makeRow({ quantity: "10", availableQuantity: "5" });
+    const state = makeState(row);
+    state.inventories[0].availableQuantity = "5";
+    const err = await rejected(
+      ListingWriteService.update(
+        "lst_1",
+        { quantity: new Decimal("7") },
+        "seller_1",
+        fakePrisma(state) as never
+      )
+    );
+
+    expect(err.statusCode).toBe(400);
+    expect(err.message).toMatch(/already committed/i);
+    expect(state.row?.quantity).toBe("10");
   });
 });
 

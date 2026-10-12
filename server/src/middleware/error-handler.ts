@@ -12,6 +12,7 @@ import {
   NotFoundError,
   ConflictError,
   BadRequestError,
+  ServiceUnavailableError,
 } from "./errors";
 
 export interface ErrorResponse {
@@ -79,6 +80,12 @@ export function errorHandler(
         );
         return;
       case "P2021":
+        sendError(
+          res,
+          new ServiceUnavailableError("The database schema is unavailable. Contact the platform administrator."),
+          req
+        );
+        return;
       case "P2003":
         sendError(
           res,

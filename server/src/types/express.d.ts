@@ -8,6 +8,7 @@ declare global {
   namespace Express {
     interface Request {
       firebaseUid?: string;
+      firebaseEmail?: string | null;
       prisma?: PrismaClient;
       requestId?: string;
     }

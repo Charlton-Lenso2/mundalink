@@ -48,7 +48,7 @@ export function ListingDetailSection(props: ListingDetailSectionProps) {
             <div><dt>Available</dt><dd>{listing.availableQuantity} {listing.unit ?? ''}</dd></div>
             <div><dt>Price per unit</dt><dd>{listing.pricePerUnit} {listing.currency}</dd></div>
             <div><dt>Location</dt><dd>{listing.location ?? 'Not specified'}</dd></div>
-            <div><dt>Seller</dt><dd>{listing.sellerName}</dd></div>
+            <div><dt>Seller</dt><dd>{listing.sellerName ?? 'Seller details unavailable'}</dd></div>
           </dl>
           {listing.status === 'DRAFT' && isOwner ? (
             <div className="notice info">
@@ -64,13 +64,13 @@ export function ListingDetailSection(props: ListingDetailSectionProps) {
               {!signedIn ? <p className="muted">Sign in to submit an offer.</p> : null}
               <label className="field">
                 <span>Quantity ({listing.unit ?? 'units'})</span>
-                <input type="number" min="0" step="any" value={offerForm.quantity}
+                <input type="number" min="0.000001" max={listing.availableQuantity} step="0.000001" value={offerForm.quantity}
                   onChange={(e) => onOfferFieldChange('quantity', e.target.value)}
                   required disabled={!signedIn || offerSubmitting} />
               </label>
               <label className="field">
                 <span>Price per unit ({listing.currency})</span>
-                <input type="number" min="0" step="any" value={offerForm.price}
+                <input type="number" min="0" step="0.000001" value={offerForm.price}
                   onChange={(e) => onOfferFieldChange('price', e.target.value)}
                   required disabled={!signedIn || offerSubmitting} />
               </label>
@@ -96,8 +96,8 @@ export function ListingDetailSection(props: ListingDetailSectionProps) {
                 {related.map((offer) => (
                   <li key={offer.id} className="offer-card">
                     <div>
-                      <strong>{offer.buyerName}</strong>
-                      <span>{offer.offeredQuantity} {listing.unit ?? 'units'} @ {offer.offeredPrice} {offer.currency}</span>
+                      <strong>{offer.buyerName ?? 'Buyer'}</strong>
+                      <span>{offer.offeredQuantity} {offer.unit ?? listing.unit ?? 'units'} @ {offer.offeredPrice}{offer.currency ? ` ${offer.currency}` : ` ${listing.currency}`}</span>
                       {offer.message ? <span className="muted">{offer.message}</span> : null}
                     </div>
                     <div className="offer-side">
@@ -119,4 +119,3 @@ export function ListingDetailSection(props: ListingDetailSectionProps) {
     </section>
   )
 }
-

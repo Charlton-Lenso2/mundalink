@@ -9,8 +9,6 @@ interface OffersSectionProps {
 }
 
 export function OffersSection({ offers, profileId, onAction, busyId }: OffersSectionProps) {
-  const incoming = offers.filter((o) => o.sellerId != null && o.sellerId !== o.buyerId && profileId != null && o.sellerId === profileId)
-  void incoming
   if (offers.length === 0) {
     return (
       <section className="screen">
@@ -27,12 +25,20 @@ export function OffersSection({ offers, profileId, onAction, busyId }: OffersSec
           <li key={offer.id} className="offer-card">
             <div>
               <strong>{offer.listingTitle ?? offer.listingId}</strong>
-              <span>{offer.buyerName} · {offer.offeredQuantity} units @ {offer.offeredPrice} {offer.currency}</span>
+              <span>{offer.buyerName ?? 'Buyer'} · {offer.offeredQuantity} {offer.unit ?? 'units'} @ {offer.offeredPrice}{offer.currency ? ` ${offer.currency}` : ''}</span>
               {offer.message ? <span className="muted">{offer.message}</span> : null}
             </div>
             <div className="offer-side">
               <StatusBadge status={offer.status} />
-              {offer.status === 'PENDING' ? (
+              {offer.status === 'PENDING' && offer.sellerId === profileId ? (
+                <div className="offer-actions">
+                  <button type="button" className="mini-accept" disabled={busyId === offer.id}
+                    onClick={() => onAction(offer.id, 'ACCEPTED')}>Accept</button>
+                  <button type="button" className="mini-decline" disabled={busyId === offer.id}
+                    onClick={() => onAction(offer.id, 'DECLINED')}>Decline</button>
+                </div>
+              ) : null}
+              {offer.status === 'PENDING' && offer.buyerId === profileId ? (
                 <div className="offer-actions">
                   <button type="button" className="mini-decline" disabled={busyId === offer.id}
                     onClick={() => onAction(offer.id, 'WITHDRAWN')}>Withdraw</button>

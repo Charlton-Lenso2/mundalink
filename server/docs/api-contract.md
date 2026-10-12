@@ -54,6 +54,7 @@ publish). Only the owner edits; only whitelisted fields.
   → `{ data: Listing[], meta: { page, limit, total, totalPages } }`.
   `search` matches title/description/commodity (case-insensitive).
 - `GET /api/listings/:id` → `{ data: Listing }` or 404.
+  Listing reads include `sellerName` when the seller has provided a display name.
 - `POST /api/listings` (auth) — seller creates. Body:
   `{ title*, quantity*>0, pricePerUnit*>=0, availableQuantity*>=0,
      description?, category?, commodity?, unit?, currency?=USD(3-letter),
@@ -61,7 +62,10 @@ publish). Only the owner edits; only whitelisted fields.
   `sellerId` is forced to the caller's profile id. Creates with `DRAFT` and an
   `inventory` row in one transaction.
 - `PATCH /api/listings/:id` (auth, owner only) — whitelisted fields;
-  403 for non-owners, 404 for unknown ids.
+  403 for non-owners, 404 for unknown ids. If availability changes, the
+  inventory row and listing availability mirror are updated atomically; the
+  request is rejected if available quantity would exceed total quantity or if
+  inventory changed concurrently.
 
 ## Offers
 
@@ -73,7 +77,9 @@ Only `PENDING` may transition; all others are terminal.
   `buyerId` is forced from the token. Rules: listing must be `ACTIVE`;
   buyer ≠ seller (403/400); one open (`PENDING`) offer per buyer per listing.
 - `GET /api/offers/mine` (auth) — offers where I am buyer OR seller
-  (via my listings), newest first.
+  (via my listings), newest first. Each offer includes listing title, seller id
+  and display name (when available), listing unit and currency, and buyer
+  display name (when available), so the client can present actions by role.
 - `PATCH /api/offers/:id/status` (auth) — body `{ status }`, one of:
   - `ACCEPTED` — listing owner only. Transactional: guarded inventory
     decrement + exactly-one deal (upsert on unique `offerId`) + offer→ACCEPTED.
@@ -91,6 +97,8 @@ Deal statuses: `PENDING → CONFIRMED → COMPLETED`, or `→ CANCELLED` from
 `PENDING`/`CONFIRMED`. `COMPLETED`/`CANCELLED` are terminal; never hard-deleted.
 
 - `GET /api/deals/mine` (auth) — deals where my profile is buyer or seller.
+  Each deal includes its listing title, unit, currency, and participant display
+  names when available.
 - `GET /api/deals/:id/history` (auth, buyer or seller of the deal) —
   audit-sourced status history, oldest first:
   `{ data: [{ id, action, actorId, payload, createdAt }] }`.

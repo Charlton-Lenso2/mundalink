@@ -1,0 +1,138 @@
+// apiClient unit tests: URL building, HTTP error mapping (401/403/404/409/5xx),
+// network failures, and response envelope validation. `fetch` is stubbed, so
+// no backend or real network access is required.
+//
+// apiClient decides mock-vs-live mode at import time, so the environment is
+// stubbed here, before the dynamic import below.
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.stubEnv('VITE_API_BASE_URL', 'http://mundalink.test/api')
+vi.stubEnv('VITE_USE_MOCK_API', 'false')
+
+type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
+const fetchMock = vi.fn<FetchFn>()
+
+let api: (typeof import('./apiClient'))['api']
+let ApiError: (typeof import('./apiClient'))['ApiError']
+
+beforeAll(async () => {
+  const mod = await import('./apiClient')
+  api = mod.api
+  ApiError = mod.ApiError
+})
+
+beforeEach(() => {
+  fetchMock.mockReset()
+  vi.stubGlobal('fetch', fetchMock)
+})
+
+afterAll(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
+
+const jsonResponse = (status: number, body: unknown, statusText = 'Status') =>
+  new Response(JSON.stringify(body), {
+    status,
+    statusText,
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+describe('URL building', () => {
+  it('calls the backend with exactly one /api prefix', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        data: [],
+        meta: { page: 1, limit: 9, total: 0, totalPages: 1 },
+      }),
+    )
+    await api.listings.list({ page: 1, limit: 9 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const url = String(fetchMock.mock.calls[0]?.[0])
+    expect(url).toBe('http://mundalink.test/api/listings?page=1&limit=9')
+    expect(url).not.toContain('/api/api/')
+  })
+})
+
+describe('HTTP error mapping', () => {
+  const cases = [
+    [401, 'Authentication required'],
+    [403, 'You cannot act on this listing'],
+    [404, 'The requested resource no longer exists'],
+    [409, 'This offer has already been processed'],
+  ] as const
+
+  for (const [status, serverMessage] of cases) {
+    it(`surfaces the server message for ${status} responses`, async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(status, { error: { code: 'TestError', message: serverMessage } }),
+      )
+      const failure = api.listings.list()
+      await expect(failure).rejects.toBeInstanceOf(ApiError)
+      await expect(failure).rejects.toMatchObject({ status, message: serverMessage })
+    })
+  }
+
+  it('falls back to statusText when the error body is not JSON', async () => {
+    fetchMock.mockResolvedValue(new Response('boom', { status: 502, statusText: 'Bad Gateway' }))
+    await expect(api.listings.list()).rejects.toMatchObject({
+      status: 502,
+      message: 'Bad Gateway',
+    })
+  })
+
+  it('supports the legacy flat { message } error shape', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(400, { message: 'quantity must be greater than zero' }))
+    await expect(api.listings.list()).rejects.toMatchObject({
+      status: 400,
+      message: 'quantity must be greater than zero',
+    })
+  })
+})
+
+describe('network failures', () => {
+  it('reports a friendly network error when fetch itself fails', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(api.listings.list()).rejects.toMatchObject({
+      status: 0,
+      message: 'Network error: could not reach the backend. Check your connection and try again.',
+    })
+  })
+})
+
+describe('response envelope validation', () => {
+  it('returns items and pagination meta on success', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        data: [{ id: 'lst_1' }],
+        meta: { page: 1, limit: 9, total: 1, totalPages: 1 },
+      }),
+    )
+    const page = await api.listings.list()
+    expect(page.items).toHaveLength(1)
+    expect(page.total).toBe(1)
+    expect(page.totalPages).toBe(1)
+  })
+
+  it('rejects a listings payload without pagination metadata', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { data: [] }))
+    await expect(api.listings.list()).rejects.toMatchObject({
+      status: 502,
+      message: 'The backend listings response is missing pagination metadata.',
+    })
+  })
+
+  it('rejects a non-array listings payload', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        data: { unexpected: true },
+        meta: { page: 1, limit: 9, total: 0, totalPages: 1 },
+      }),
+    )
+    await expect(api.listings.list()).rejects.toMatchObject({
+      status: 502,
+      message: 'The backend returned an invalid listings payload.',
+    })
+  })
+})

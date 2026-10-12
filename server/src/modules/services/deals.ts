@@ -4,7 +4,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { toDealRecord, DEAL_STATUS, type DealRecord, type DealStatus } from "../types/deal";
-import { badRequestError, forbiddenError, notFoundError } from "../../middleware/error-handler";
+import { badRequestError, conflictError, forbiddenError, notFoundError } from "../../middleware/error-handler";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TxClient = any;
@@ -16,6 +16,11 @@ export class DealService {
     const rows = await this.prisma.agreedDeal.findMany({
       where: { OR: [{ buyerId: profileId }, { sellerId: profileId }] },
       orderBy: { createdAt: "desc" },
+      include: {
+        listing: { select: { title: true, currency: true, unit: true } },
+        buyer: { select: { displayName: true } },
+        seller: { select: { displayName: true } },
+      },
     });
     return rows.map(toDealRecord);
   }
@@ -52,7 +57,15 @@ export class DealService {
         target === DEAL_STATUS.COMPLETED
           ? { status: target, executedAt: new Date() }
           : { status: target };
-      const updated = await tx.agreedDeal.update({ where: { id: dealId }, data });
+      const changed = await tx.agreedDeal.updateMany({
+        where: { id: dealId, status: current },
+        data,
+      });
+      if (changed.count !== 1) {
+        conflictError("Deal status changed while updating. Refresh and try again.");
+      }
+      const updated = await tx.agreedDeal.findUnique({ where: { id: dealId } });
+      if (!updated) notFoundError(`Deal not found: ${dealId}`);
       return toDealRecord(updated);
     });
   }

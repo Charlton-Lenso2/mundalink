@@ -51,18 +51,18 @@ export function AuthSection({
           {authMode === 'signup' ? (
             <label className="field">
               <span>Full name</span>
-              <input value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} placeholder="Your full name" />
+              <input value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} placeholder="Your full name" required autoComplete="name" />
             </label>
           ) : null}
 
           <label className="field">
             <span>Email address</span>
-            <input type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="you@example.com" required />
+            <input type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="you@example.com" required autoComplete="email" />
           </label>
 
           <label className="field">
             <span>Password</span>
-            <input type="password" value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="At least 6 characters" required />
+            <input type="password" value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="At least 6 characters" required minLength={6} autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} />
           </label>
 
           {authError ? <div className="notice error">{authError}</div> : null}

@@ -87,6 +87,17 @@ export class OfferAcceptanceService {
         badRequestError("Offered quantity must be positive");
       }
 
+      // Claim the pending offer before reserving stock. The conditional update
+      // is a compare-and-set guard: two accept requests for the same offer
+      // cannot both decrement inventory, even when the listing has ample stock.
+      const claimed = await tx.offer.updateMany({
+        where: { id: offerId, status: OFFER_STATUS.PENDING },
+        data: { status: OFFER_STATUS.ACCEPTED },
+      });
+      if (claimed.count !== 1) {
+        conflictError("This offer is no longer pending");
+      }
+
       const decremented = await tx.inventory.updateMany({
         where: {
           listingId: offer.listingId,
@@ -123,10 +134,10 @@ export class OfferAcceptanceService {
         },
       });
 
-      const accepted = await tx.offer.update({
+      const accepted = await tx.offer.findUnique({
         where: { id: offerId },
-        data: { status: OFFER_STATUS.ACCEPTED },
       });
+      if (!accepted) notFoundError(`Offer not found: ${offerId}`);
 
       return toOfferRecord(accepted);
     });

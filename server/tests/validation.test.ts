@@ -24,6 +24,28 @@ describe("ListingValidation.create", () => {
     ).toThrow();
   });
 
+  it("rejects available quantity greater than total quantity", () => {
+    expect(() =>
+      ListingValidation.create({
+        title: "Maize grain",
+        quantity: "10",
+        pricePerUnit: "5",
+        availableQuantity: "11",
+      })
+    ).toThrow(/availableQuantity cannot exceed quantity/);
+  });
+
+  it("rejects numeric precision that cannot be stored in NUMERIC(20,6)", () => {
+    expect(() =>
+      ListingValidation.create({
+        title: "Maize grain",
+        quantity: "10.0000001",
+        pricePerUnit: "5",
+        availableQuantity: "10",
+      })
+    ).toThrow(/NUMERIC\(20,6\)/);
+  });
+
   it("accepts a valid payload", () => {
     const out = ListingValidation.create({
       title: "Maize grain",
@@ -97,5 +119,34 @@ describe("DealBodyValidation.status", () => {
     for (const s of ["CONFIRMED", "COMPLETED", "CANCELLED"]) {
       expect(DealBodyValidation.status({ status: s.toLowerCase() }).status).toBe(s);
     }
+  });
+});
+
+describe("NUMERIC(20,6) storage guards (validateStoredDecimal)", () => {
+  it("rejects offer quantities with more than 6 decimal places", () => {
+    expect(() =>
+      OfferBodyValidation.create({
+        listingId: "lst_1",
+        offeredQuantity: "5.0000001",
+        offeredPrice: "100",
+      })
+    ).toThrow(/NUMERIC\(20,6\)/);
+  });
+
+  it("rejects listing updates with more than 6 decimal places", () => {
+    expect(() => ListingValidation.update({ pricePerUnit: "1.1234567" })).toThrow(
+      /NUMERIC\(20,6\)/
+    );
+  });
+
+  it("rejects values that overflow NUMERIC(20,6)", () => {
+    expect(() =>
+      ListingValidation.create({
+        title: "Maize grain",
+        quantity: "100000000000000",
+        pricePerUnit: "5",
+        availableQuantity: "10",
+      })
+    ).toThrow(/NUMERIC\(20,6\)/);
   });
 });

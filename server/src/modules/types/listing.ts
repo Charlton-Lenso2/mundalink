@@ -63,6 +63,7 @@ export interface ListingRecord {
   pricePerUnit: string;
   currency: string;
   location: string | null;
+  sellerName?: string;
   latitude: number | null;
   longitude: number | null;
   status: ListingStatus;
@@ -90,6 +91,7 @@ export function toListingRecord(
     availableQuantity: unknown;
     createdAt: Date;
     updatedAt: Date;
+    seller?: { displayName: string | null } | null;
   }
 ): ListingRecord {
   return {
@@ -104,6 +106,7 @@ export function toListingRecord(
     pricePerUnit: String(l.pricePerUnit),
     currency: l.currency,
     location: l.location,
+    ...(l.seller?.displayName ? { sellerName: l.seller.displayName } : {}),
     latitude: l.latitude,
     longitude: l.longitude,
     status: l.status as ListingStatus,

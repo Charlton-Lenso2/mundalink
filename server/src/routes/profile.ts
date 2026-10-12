@@ -14,7 +14,7 @@ profileRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const svc = new ProfileService(req.prisma ?? prisma);
-      const profile = await svc.getOrInit(req.firebaseUid as string);
+      const profile = await svc.getOrInit(req.firebaseUid as string, req.firebaseEmail);
       res.json({ data: profile });
     } catch (err) {
       next(err);

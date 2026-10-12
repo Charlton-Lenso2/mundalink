@@ -53,6 +53,13 @@ export class ConflictError extends HttpError {
   }
 }
 
+export class ServiceUnavailableError extends HttpError {
+  constructor(message = "Service temporarily unavailable") {
+    super(503, message);
+    this.name = "ServiceUnavailableError";
+  }
+}
+
 export class UnprocessableError extends HttpError {
   constructor(message = "Unprocessable entity", details?: Record<string, unknown>) {
     super(422, message, details);

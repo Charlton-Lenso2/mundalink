@@ -22,6 +22,14 @@ function fakePrisma(deal: { id: string; buyerId: string; sellerId: string; statu
           updatedAt: new Date("2026-01-02T00:00:00.000Z"),
         };
       },
+      updateMany: async (args: {
+        where: { id: string; status: string };
+        data: { status: string; executedAt?: Date };
+      }) => {
+        if (args.where.id !== current.id || args.where.status !== current.status) return { count: 0 };
+        current = { ...current, status: args.data.status };
+        return { count: 1 };
+      },
       findMany: async () => [],
     },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({ agreedDeal: client.agreedDeal }),
@@ -49,6 +57,22 @@ describe("DealService.transition", () => {
   it("terminal deals never transition", async () => {
     const svc = new DealService(fakePrisma({ id: "d1", buyerId: "b", sellerId: "s", status: "COMPLETED" }) as never);
     await expect(svc.transition("d1", "b", DEAL_STATUS.CANCELLED)).rejects.toThrow(/already COMPLETED/);
+  });
+
+  it("allows only one concurrent transition from the same status", async () => {
+    const client = fakePrisma({ id: "d1", buyerId: "b", sellerId: "s", status: "PENDING" });
+    const svc = new DealService(client as never);
+    const results = await Promise.allSettled([
+      svc.transition("d1", "b", DEAL_STATUS.CONFIRMED),
+      svc.transition("d1", "s", DEAL_STATUS.CANCELLED),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const failure = results.find((result) => result.status === "rejected");
+    expect(failure?.status).toBe("rejected");
+    if (failure?.status === "rejected") {
+      expect((failure.reason as { statusCode?: number }).statusCode).toBe(409);
+    }
   });
 });
 

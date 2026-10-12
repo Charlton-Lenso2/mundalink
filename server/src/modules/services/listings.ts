@@ -67,6 +67,7 @@ export class PrismaListingService implements ListingService {
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
+        include: { seller: { select: { displayName: true } } },
       }),
       this.prisma.listing.count({ where }),
     ]);
@@ -83,6 +84,7 @@ export class PrismaListingService implements ListingService {
   async findById(id: string, prismaClient: PrismaClient): Promise<ListingRecord | null> {
     const listing = await prismaClient.listing.findUnique({
       where: { id },
+      include: { seller: { select: { displayName: true } } },
     });
     return listing ? toListingRecord(listing) : null;
   }

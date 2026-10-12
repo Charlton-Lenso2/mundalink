@@ -2,7 +2,9 @@ import { auth } from './firebase'
 import { mockDeals, mockListings, mockOffers, mockProfile } from '../data/mock-data'
 import type { ApiHealthResponse, Deal, DealStatus, Listing, Offer, OfferStatus, Profile } from '../types'
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '')
+  .replace(/\/+$/, '')
+  .replace(/\/api$/i, '')
 const isMockForced = import.meta.env.VITE_USE_MOCK_API === 'true'
 
 const buildUrl = (path: string) => {
@@ -15,7 +17,7 @@ const buildUrl = (path: string) => {
 
 const getAuthHeader = async () => {
   const user = auth.currentUser
-  if (!user) return {}
+  if (!user) throw new ApiError('Sign in is required for this action.', 401)
   const token = await user.getIdToken()
   return { Authorization: `Bearer ${token}` }
 }
@@ -37,7 +39,21 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}, requireAuth = false): Promise<T> {
+interface ApiEnvelope<T> {
+  data: T
+  meta?: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+  }
+}
+
+async function requestEnvelope<T>(
+  path: string,
+  options: RequestInit = {},
+  requireAuth = false,
+): Promise<ApiEnvelope<T>> {
   const isMock = isMockForced || !apiBaseUrl
   if (isMock) {
     throw new ApiError('Live backend is not configured', 0)
@@ -60,6 +76,7 @@ async function request<T>(path: string, options: RequestInit = {}, requireAuth =
     message?: string
     error?: { message?: unknown } | string
     data?: T
+    meta?: ApiEnvelope<T>['meta']
   } | null
 
   if (!response.ok) {
@@ -70,11 +87,20 @@ async function request<T>(path: string, options: RequestInit = {}, requireAuth =
     throw new ApiError(errMsg, response.status)
   }
 
-  if (payload && Object.prototype.hasOwnProperty.call(payload, 'data')) {
-    return payload.data as T
+  if (!payload || typeof payload !== 'object') {
+    throw new ApiError('The backend returned an invalid JSON response.', response.status)
   }
 
-  return (payload ?? ({} as T)) as T
+  if (Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    return { data: payload.data as T, meta: payload.meta }
+  }
+
+  return { data: payload as T }
+}
+
+async function request<T>(path: string, options: RequestInit = {}, requireAuth = false): Promise<T> {
+  const response = await requestEnvelope<T>(path, options, requireAuth)
+  return response.data
 }
 
 export interface ListingQuery {
@@ -106,20 +132,30 @@ export const api = {
     }
 
     try {
-      const payload = await request<{ status: string; database?: { status: string } }>('/health')
-      const dbUp = payload.database?.status === 'up' || payload.status === 'ok'
+      const { data: payload } = await requestEnvelope<{
+        status: string
+        database?: { status: string }
+      }>('/health')
+      const dbUp = payload.database?.status === 'up' && payload.status === 'ok'
       return {
         ok: dbUp,
         status: payload.status,
-        mode: 'live',
-        message: dbUp ? 'Live backend connected.' : 'Live backend reachable; database is degraded.',
+        mode: dbUp ? 'live' : 'unavailable',
+        message: dbUp
+          ? 'Live backend connected.'
+          : 'The backend is reachable, but its database is unavailable.',
       }
-    } catch {
+    } catch (healthError) {
+      const degraded = healthError instanceof ApiError && healthError.status === 503
       return {
-        ok: true,
-        status: 'demo',
-        mode: 'mock',
-        message: 'Demonstration data mode: the live backend is unavailable.',
+        ok: false,
+        status: degraded ? 'degraded' : 'unavailable',
+        mode: 'unavailable',
+        message: degraded
+          ? 'The backend is reachable, but its database is unavailable.'
+          : healthError instanceof Error
+          ? `Live backend unavailable: ${healthError.message}`
+          : 'Live backend unavailable. Check the connection and try again.',
       }
     }
   },
@@ -128,6 +164,7 @@ export const api = {
     list: async (query: ListingQuery = {}): Promise<ListingPage> => {
       if (isMockForced || !apiBaseUrl) {
         let items = [...mockListings]
+        if (query.status) items = items.filter((listing) => listing.status === query.status)
         const search = (query.search ?? '').toLowerCase()
         if (search) {
           items = items.filter((l) =>
@@ -138,7 +175,12 @@ export const api = {
         if (query.location && query.location !== 'All') {
           items = items.filter((l) => (l.location ?? '').toLowerCase().includes((query.location ?? '').toLowerCase()))
         }
-        return { items, page: 1, limit: items.length, total: items.length, totalPages: 1 }
+        const total = items.length
+        const limit = query.limit ?? (total || 1)
+        const page = query.page ?? 1
+        const start = (page - 1) * limit
+        items = items.slice(start, start + limit)
+        return { items, page, limit, total, totalPages: Math.ceil(total / limit) }
       }
       const params = new URLSearchParams()
       if (query.search) params.set('search', query.search)
@@ -148,11 +190,17 @@ export const api = {
       if (query.page) params.set('page', String(query.page))
       if (query.limit) params.set('limit', String(query.limit))
       const qs = params.toString()
-      const response = await request<Listing[] | { data: Listing[]; meta: Omit<ListingPage, 'items'> }>(`/listings${qs ? `?${qs}` : ''}`)
-      if (Array.isArray(response)) {
-        return { items: response, page: 1, limit: response.length, total: response.length, totalPages: 1 }
+      const response = await requestEnvelope<Listing[]>(`/listings${qs ? `?${qs}` : ''}`)
+      if (!Array.isArray(response.data)) {
+        throw new ApiError('The backend returned an invalid listings payload.', 502)
       }
-      return { items: response.data ?? [], ...(response.meta ?? { page: 1, limit: 0, total: 0, totalPages: 0 }) }
+      if (!response.meta) {
+        throw new ApiError('The backend listings response is missing pagination metadata.', 502)
+      }
+      return {
+        items: response.data,
+        ...response.meta,
+      }
     },
     getById: async (id: string) => {
       if (isMockForced || !apiBaseUrl) return mockListings.find((l) => l.id === id) ?? null

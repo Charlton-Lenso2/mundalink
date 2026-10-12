@@ -66,7 +66,7 @@ export function CreateListingSection({ form, onFieldChange, onSubmit, submitting
         <div className="split-fields">
           <label className="field">
             <span>Quantity</span>
-            <input type="number" min="0" step="any" value={form.quantity} onChange={(event) => onFieldChange('quantity', event.target.value)} required />
+            <input type="number" min="0.000001" step="0.000001" value={form.quantity} onChange={(event) => onFieldChange('quantity', event.target.value)} required />
           </label>
           <label className="field">
             <span>Unit</span>
@@ -76,13 +76,13 @@ export function CreateListingSection({ form, onFieldChange, onSubmit, submitting
 
         <label className="field">
           <span>Available quantity (same unit)</span>
-          <input type="number" min="0" step="any" value={form.availableQuantity} onChange={(event) => onFieldChange('availableQuantity', event.target.value)} required />
+          <input type="number" min="0" max={form.quantity || undefined} step="0.000001" value={form.availableQuantity} onChange={(event) => onFieldChange('availableQuantity', event.target.value)} required />
         </label>
 
         <div className="split-fields">
           <label className="field">
             <span>Price per unit</span>
-            <input type="number" min="0" step="any" value={form.pricePerUnit} onChange={(event) => onFieldChange('pricePerUnit', event.target.value)} required />
+            <input type="number" min="0" step="0.000001" value={form.pricePerUnit} onChange={(event) => onFieldChange('pricePerUnit', event.target.value)} required />
           </label>
           <label className="field">
             <span>Currency</span>
@@ -94,10 +94,9 @@ export function CreateListingSection({ form, onFieldChange, onSubmit, submitting
           </label>
         </div>
 
-        <button type="submit" className="primary-button" disabled={submitting}>{submitting ? 'Creating listing...' : 'Publish listing'}</button>
+        <button type="submit" className="primary-button" disabled={submitting}>{submitting ? 'Saving listing...' : 'Save as draft'}</button>
       </form>
     </section>
   )
 }
-
 

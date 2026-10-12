@@ -17,6 +17,7 @@
 
 import { Decimal } from "decimal.js";
 import { badRequestError } from "../../middleware/error-handler";
+import { validateStoredDecimal } from "./numeric";
 
 export class ListingValidation {
   static create(input: unknown): import("../types/listing").CreateListingInput {
@@ -43,6 +44,12 @@ export class ListingValidation {
     const latitude = this.optionalNumber(body, "latitude");
     const longitude = this.optionalNumber(body, "longitude");
     const availableQuantity = this.nonNegativeDecimal(body, "availableQuantity");
+    validateStoredDecimal(quantity, "quantity");
+    validateStoredDecimal(pricePerUnit, "pricePerUnit");
+    validateStoredDecimal(availableQuantity, "availableQuantity");
+    if (availableQuantity.gt(quantity)) {
+      badRequestError("availableQuantity cannot exceed quantity");
+    }
 
     return {
       sellerId: body.sellerId as string,
@@ -84,13 +91,13 @@ export class ListingValidation {
     if (typeof body.commodity === "string") result.commodity = body.commodity;
     if (typeof body.unit === "string") result.unit = body.unit;
     if (body.pricePerUnit !== undefined) {
-      result.pricePerUnit = this.nonNegativeDecimal(
+      result.pricePerUnit = validateStoredDecimal(this.nonNegativeDecimal(
         { pricePerUnit: body.pricePerUnit },
         "pricePerUnit"
-      );
+      ), "pricePerUnit");
     }
     if (body.quantity !== undefined) {
-      result.quantity = this.positiveDecimal({ quantity: body.quantity }, "quantity");
+      result.quantity = validateStoredDecimal(this.positiveDecimal({ quantity: body.quantity }, "quantity"), "quantity");
     }
     if (typeof body.currency === "string") {
       const c = body.currency.toUpperCase();
@@ -101,10 +108,10 @@ export class ListingValidation {
     if (typeof body.latitude === "number") result.latitude = body.latitude;
     if (typeof body.longitude === "number") result.longitude = body.longitude;
     if (body.availableQuantity !== undefined) {
-      result.availableQuantity = this.nonNegativeDecimal(
+      result.availableQuantity = validateStoredDecimal(this.nonNegativeDecimal(
         { availableQuantity: body.availableQuantity },
         "availableQuantity"
-      );
+      ), "availableQuantity");
     }
     if (typeof body.status === "string") {
       const status = body.status.toUpperCase();

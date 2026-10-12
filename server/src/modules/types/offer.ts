@@ -42,7 +42,13 @@ export interface CreateOfferInput {
 export interface OfferRecord {
   id: string;
   buyerId: string;
+  buyerName?: string;
   listingId: string;
+  listingTitle?: string;
+  sellerId?: string;
+  sellerName?: string;
+  currency?: string;
+  unit?: string | null;
   offeredQuantity: string;
   offeredPrice: string;
   message: string | null;
@@ -159,11 +165,29 @@ export function toOfferRecord(o: {
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date | null;
+  buyer?: { displayName: string | null } | null;
+  listing?: {
+    title: string;
+    sellerId: string;
+    currency: string;
+    unit: string | null;
+    seller?: { displayName: string | null } | null;
+  } | null;
 }): OfferRecord {
   return {
     id: o.id,
     buyerId: o.buyerId,
+    ...(o.buyer?.displayName ? { buyerName: o.buyer.displayName } : {}),
     listingId: o.listingId,
+    ...(o.listing
+      ? {
+          listingTitle: o.listing.title,
+          sellerId: o.listing.sellerId,
+          ...(o.listing.seller?.displayName ? { sellerName: o.listing.seller.displayName } : {}),
+          currency: o.listing.currency,
+          unit: o.listing.unit,
+        }
+      : {}),
     offeredQuantity: String(o.offeredQuantity),
     offeredPrice: String(o.offeredPrice),
     message: o.message,
@@ -173,4 +197,3 @@ export function toOfferRecord(o: {
     expiresAt: o.expiresAt,
   };
 }
-
