@@ -9,9 +9,20 @@ interface DashboardSectionProps {
   deals: Deal[]
   onOpenListing: (id: string) => void
   onOpenProfile: () => void
+  onOpenRequirements: () => void
+  onOpenAggregation: () => void
 }
 
-export function DashboardSection({ profile, listings, offers, deals, onOpenListing, onOpenProfile }: DashboardSectionProps) {
+export function DashboardSection({
+  profile,
+  listings,
+  offers,
+  deals,
+  onOpenListing,
+  onOpenProfile,
+  onOpenRequirements,
+  onOpenAggregation,
+}: DashboardSectionProps) {
   const availableListings = listings.filter((listing) => listing.status === 'ACTIVE').length
   const stats = [
     { label: 'Active listings shown', value: String(availableListings) },
@@ -114,6 +125,27 @@ export function DashboardSection({ profile, listings, offers, deals, onOpenListi
           )}
         </div>
       </div>
+
+      {profile?.role === 'BUYER' ? (
+        <div className="dashboard-feature-link">
+          <div>
+            <span className="eyebrow">Buyer workspace</span>
+            <h3>Organise demand before you source</h3>
+            <p>Draft a produce requirement with a clear quantity, unit, location, and date. Requirement services are not connected yet.</p>
+          </div>
+          <button type="button" className="secondary-button" onClick={onOpenRequirements}>Open buyer requirements</button>
+        </div>
+      ) : null}
+      {profile?.role === 'SELLER' ? (
+        <div className="dashboard-feature-link">
+          <div>
+            <span className="eyebrow">Seller workspace</span>
+            <h3>Discover buyer demand</h3>
+            <p>Aggregation matching is not connected yet; no buyer demand or reserved inventory is implied.</p>
+          </div>
+          <button type="button" className="secondary-button" onClick={onOpenAggregation}>View aggregation opportunities</button>
+        </div>
+      ) : null}
 
       <div className="dashboard-grid two-up">
         <div className="dashboard-panel">

@@ -2,6 +2,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { authenticate } from "../middleware/auth";
+import { requireRole } from "../middleware/rbac";
 import { PrismaListingService } from "../modules/services/listings";
 import { ListingWriteService } from "../modules/services/listings-write";
 import { ListingValidation } from "../modules/validation/listing";
@@ -82,8 +83,8 @@ listingsRouter.get("/:id", async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-// POST /api/listings (seller, authenticated; owner = verified UID)
-listingsRouter.post("/", authenticate(), async (req: Request, res: Response, next: NextFunction) => {
+// POST /api/listings (SELLER only, authenticated; owner = verified UID)
+listingsRouter.post("/", authenticate(), requireRole("SELLER"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = ListingValidation.create({ ...req.body, sellerId: "x" });
     const me = await (req.prisma ?? prisma).profile.findUnique({
@@ -101,8 +102,8 @@ listingsRouter.post("/", authenticate(), async (req: Request, res: Response, nex
   }
 });
 
-// PATCH /api/listings/:id (owner only; permitted fields enforced by validator)
-listingsRouter.patch("/:id", authenticate(), async (req: Request, res: Response, next: NextFunction) => {
+// PATCH /api/listings/:id (SELLER only, owner only; permitted fields enforced by validator)
+listingsRouter.patch("/:id", authenticate(), requireRole("SELLER"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = ListingValidation.update(req.body);
     const me = await (req.prisma ?? prisma).profile.findUnique({

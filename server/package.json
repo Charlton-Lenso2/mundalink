@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "admin:promote": "tsx scripts/promote-admin.ts",
+    "role:assign": "tsx scripts/assign-role.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",

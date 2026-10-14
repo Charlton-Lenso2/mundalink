@@ -33,7 +33,9 @@ Required env vars (see `.env.example`): `DATABASE_URL` (Supabase pooler, port
 | `npm run dev` | Hot-reload API (`tsx watch src/index.ts`) |
 | `npm run build` / `npm start` | Compile to `dist/` and run it |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | `vitest run` (auth boundaries, validation, inventory guard) |
+| `npm test` | `vitest run` (auth boundaries, validation, inventory guard, RBAC) |
+| `npm run admin:promote -- <uid\|email>` | Operator CLI: promote a signed-in user to the **first** `ADMIN` |
+| `npm run role:assign -- <uid\|email> <BUYER\|SELLER\|ADMIN\|OBSERVER>` | Operator CLI: assign a trading/admin role to a signed-in user (audit-logged) |
 | `npm run migrate:dev` | `prisma migrate dev` (local/dev workflow only) |
 | `npm run migrate:deploy` | `prisma migrate deploy` (apply approved migrations) |
 | `npm run prisma:generate` | Regenerate the Prisma client |

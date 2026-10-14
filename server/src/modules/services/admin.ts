@@ -27,6 +27,18 @@ export interface PromoteAdminResult {
   alreadyAdmin: boolean;
 }
 
+/** Roles an operator may assign via the `role:assign` CLI. */
+export type AssignableRole = "BUYER" | "SELLER" | "ADMIN" | "OBSERVER";
+const ASSIGNABLE_ROLES: AssignableRole[] = ["BUYER", "SELLER", "ADMIN", "OBSERVER"];
+
+export interface AssignRoleResult {
+  firebaseUid: string;
+  profileId: string;
+  previousRole: string;
+  role: string;
+  alreadyRole: boolean;
+}
+
 export class AdminBootstrapService {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -80,6 +92,74 @@ export class AdminBootstrapService {
       previousRole: profile.role,
       role: updated.role,
       alreadyAdmin: false,
+    };
+  }
+
+  /**
+   * Assign a BUYER / SELLER / ADMIN / OBSERVER role to an existing profile.
+   * Operator-driven via the `role:assign` CLI — this is the documented way an
+   * authorised operator grants trading roles after a user has signed in once.
+   * Identity is resolved through Firebase (never a client value); the profile
+   * must already exist. Idempotent and audit-logged (ROLE_ASSIGNED).
+   */
+  async assignRole(
+    auth: FirebaseAuthLike,
+    identifier: string,
+    role: string
+  ): Promise<AssignRoleResult> {
+    const normalized = (role ?? "").trim().toUpperCase();
+    if (!ASSIGNABLE_ROLES.includes(normalized as AssignableRole)) {
+      badRequestError(`role must be one of ${ASSIGNABLE_ROLES.join(", ")}`);
+    }
+    const trimmed = (identifier ?? "").trim();
+    if (!trimmed) {
+      badRequestError("identifier (Firebase UID or email) is required");
+    }
+
+    const firebaseUid = await this.resolveFirebaseUid(auth, trimmed);
+
+    const profile = await this.prisma.profile.findUnique({
+      where: { firebaseUid },
+      select: { id: true, role: true },
+    });
+    if (!profile) {
+      notFoundError(
+        "No profile exists for that Firebase user yet; ask them to sign in once (GET /api/profile/me) before assigning a role"
+      );
+    }
+
+    // Idempotent: assigning the role the user already holds is a no-op.
+    if (profile.role === normalized) {
+      return {
+        firebaseUid,
+        profileId: profile.id,
+        previousRole: profile.role,
+        role: normalized,
+        alreadyRole: true,
+      };
+    }
+
+    const updated = await this.prisma.profile.update({
+      where: { id: profile.id },
+      data: { role: normalized },
+      select: { id: true, role: true },
+    });
+
+    await auditLog({
+      actorType: "SYSTEM",
+      entityType: "profile",
+      entityId: profile.id,
+      action: "ROLE_ASSIGNED",
+      payload: { firebaseUid, previousRole: profile.role, role: normalized },
+      prismaClient: this.prisma,
+    });
+
+    return {
+      firebaseUid,
+      profileId: updated.id,
+      previousRole: profile.role,
+      role: updated.role,
+      alreadyRole: false,
     };
   }
 

@@ -19,16 +19,19 @@ import { ListingDetailSection } from './components/ListingDetailSection'
 import { MarketplaceSection } from './components/MarketplaceSection'
 import { OffersSection } from './components/OffersSection'
 import { ProfileSection } from './components/ProfileSection'
+import { BuyerRequirementsSection, SellerAggregationSection } from './components/RequirementsSection'
 import { ToastStack, type Toast } from './components/ToastStack'
 import { ApiError, api } from './lib/apiClient'
 import { auth } from './lib/firebase'
+import { getRequirementFeatureViews } from './lib/requirementFeatures'
 import type { ApiHealthResponse, Deal, Listing, Offer, Profile } from './types'
 
 export type View =
   | 'discover' | 'marketplace' | 'auth' | 'create'
   | 'dashboard' | 'profile' | 'listing' | 'offers' | 'deals'
+  | 'requirements' | 'aggregation'
 
-const protectedViews: View[] = ['create', 'dashboard', 'profile', 'offers', 'deals']
+const protectedViews: View[] = ['create', 'dashboard', 'profile', 'offers', 'deals', 'requirements', 'aggregation']
 
 type ListingForm = {
   title: string
@@ -162,7 +165,11 @@ function App() {
       setListings(result.items)
       setPageCount(Math.max(1, result.totalPages))
     } catch (fetchError) {
-      const message = fetchError instanceof Error ? fetchError.message : 'Could not load listings.'
+      const message = fetchError instanceof ApiError && fetchError.status > 0
+        ? `The API returned HTTP ${fetchError.status}: ${fetchError.message}`
+        : fetchError instanceof Error
+          ? fetchError.message
+          : 'Could not load listings.'
       setListingsError(message)
     } finally {
       setListingsLoading(false)
@@ -487,6 +494,12 @@ function App() {
     { id: 'offers', label: 'Offers' },
     { id: 'deals', label: 'Deals' },
     { id: 'create', label: 'Create Listing' },
+    ...(getRequirementFeatureViews(profile?.role).includes('requirements')
+      ? [{ id: 'requirements' as const, label: 'Buyer Requirements' }]
+      : []),
+    ...(getRequirementFeatureViews(profile?.role).includes('aggregation')
+      ? [{ id: 'aggregation' as const, label: 'Aggregation' }]
+      : []),
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'profile', label: 'Profile' },
   ]
@@ -734,7 +747,16 @@ function App() {
           </div>
         )}
         {view === 'dashboard' && (
-          <DashboardSection profile={profile} listings={listings.filter((listing) => listing.status === 'ACTIVE')} offers={offers} deals={deals} onOpenListing={openListing} onOpenProfile={() => navigateTo('profile')} />
+          <DashboardSection
+            profile={profile}
+            listings={listings.filter((listing) => listing.status === 'ACTIVE')}
+            offers={offers}
+            deals={deals}
+            onOpenListing={openListing}
+            onOpenProfile={() => navigateTo('profile')}
+            onOpenRequirements={() => navigateTo('requirements')}
+            onOpenAggregation={() => navigateTo('aggregation')}
+          />
         )}
         {view === 'profile' && (
           <ProfileSection
@@ -743,6 +765,10 @@ function App() {
             onSave={handleProfileSave}
             saving={profileSaving}
           />
+        )}
+        {view === 'requirements' && profile?.role === 'BUYER' && <BuyerRequirementsSection />}
+        {view === 'aggregation' && profile?.role === 'SELLER' && (
+          <SellerAggregationSection onBrowseMarketplace={() => setView('marketplace')} />
         )}
           </main>
         </div>
@@ -773,6 +799,8 @@ function NavIcon({ name }: { name: View | 'menu' | 'close' | 'signout' }) {
     create: <><path d="M12 5v14" /><path d="M5 12h14" /><rect x="3" y="3" width="18" height="18" rx="4" /></>,
     dashboard: <><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="5" rx="1" /><rect x="13" y="10" width="8" height="11" rx="1" /><rect x="3" y="13" width="8" height="8" rx="1" /></>,
     profile: <><circle cx="12" cy="8" r="4" /><path d="M5 21a7 7 0 0 1 14 0" /></>,
+    requirements: <><path d="M8 5h12" /><path d="M8 12h12" /><path d="M8 19h12" /><path d="M3 5h.01" /><path d="M3 12h.01" /><path d="M3 19h.01" /></>,
+    aggregation: <><path d="M4 19V5" /><path d="M4 19h16" /><path d="m7 15 4-4 3 2 5-6" /></>,
     listing: <><circle cx="9" cy="20" r="1" /><circle cx="19" cy="20" r="1" /><path d="M3 4h2l2.4 11.4a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L22 8H6" /></>,
     auth: <><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><path d="m10 17 5-5-5-5" /><path d="M15 12H3" /></>,
     menu: <><path d="M4 7h16" /><path d="M4 12h16" /><path d="M4 17h16" /></>,

@@ -4,6 +4,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { authenticate } from "../middleware/auth";
 import { prisma } from "../modules/prisma";
 import { DealService } from "../modules/services/deals";
+import { NotificationService } from "../modules/services/notifications";
 import { DealBodyValidation } from "../modules/validation/deal";
 import { DEAL_STATUS } from "../modules/types/deal";
 import { auditLog } from "../modules/auditLog";
@@ -63,6 +64,31 @@ dealsRouter.patch("/:id/status", authenticate(), async (req: Request, res: Respo
       payload: reason !== undefined ? { status, reason } : { status },
       prismaClient: client,
     });
+    // Real event -> notify the OTHER participant (not the actor) of the change.
+    const recipientId = pid === deal.buyerId ? deal.sellerId : deal.buyerId;
+    const notifyType =
+      status === DEAL_STATUS.CANCELLED
+        ? "DEAL_CANCELLED"
+        : status === DEAL_STATUS.COMPLETED
+          ? "DEAL_COMPLETED"
+          : "DEAL_CONFIRMED";
+    const notifyTitle =
+      status === DEAL_STATUS.CANCELLED
+        ? "A deal was cancelled"
+        : status === DEAL_STATUS.COMPLETED
+          ? "A deal was marked completed"
+          : "A deal was confirmed";
+    await NotificationService.notify(
+      {
+        recipientId,
+        entityType: "deal",
+        entityId: deal.id,
+        type: notifyType,
+        title: notifyTitle,
+        body: reason ?? null,
+      },
+      client
+    );
     res.json({ data: deal });
   } catch (err) {
     next(err);

@@ -27,10 +27,13 @@ model Profile {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  listings    Listing[]
-  offers      Offer[]
-  dealsBought AgreedDeal[] @relation("DealBuyer")
-  dealsSold   AgreedDeal[] @relation("DealSeller")
+  listings      Listing[]
+  offers        Offer[]
+  dealsBought   AgreedDeal[] @relation("DealBuyer")
+  dealsSold     AgreedDeal[] @relation("DealSeller")
+  notifications Notification[] @relation("NotificationRecipient")
+  requirements  Requirement[]
+  contributions Contribution[]
 
   @@map("profiles")
 }
@@ -63,6 +66,7 @@ model Listing {
   offers      Offer[]
   deals       AgreedDeal[]
   inventory   Inventory?
+  contributions Contribution[]
 
   @@index([status])
   @@index([category])
@@ -169,3 +173,133 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+// In-app notifications derived from REAL domain events only (offer created,
+// offer accepted, deal status change). A notification always references the
+// entity that produced it; there is no fabricated content. `readAt` powers the
+// unread badge. Never hard-deleted — marking read is the only mutation.
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String
+  recipient   Profile   @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  // Loose reference to the source entity (an Offer id or AgreedDeal id). Kept
+  // as a plain id (no FK) so notifications survive independently of the entity.
+  entityType  String    @db.VarChar(32)
+  entityId    String
+
+  type        String    @db.VarChar(48)
+  title       String    @db.Text
+  body        String?   @db.Text
+
+  readAt      DateTime?
+
+  createdAt   DateTime  @default(now())
+
+  @@index([recipientId, createdAt])
+  @@index([recipientId, readAt])
+
+  @@map("notifications")
+}
+
+// Buyer demand: a BUYER posts what they want to buy. Created OPEN together with
+// exactly one Aggregation (mirrors Listing+Inventory). Quantities/money use
+// NUMERIC(20,6); units are free text and only combine on EXACT match (no
+// conversion). Ownership is server-side (buyerId from the verified token);
+// status changes are server-driven only.
+model Requirement {
+  id           String   @id @default(cuid())
+  buyerId      String
+  buyer        Profile  @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  title        String   @db.Text
+  description  String?  @db.Text
+  qualityNotes String?  @db.Text
+
+  category     String?  @db.VarChar(128)
+  commodity    String?  @db.VarChar(128)
+
+  quantity     Decimal  @db.Decimal(20, 6)
+  unit         String   @db.VarChar(32)
+
+  location     String?
+  neededBy     DateTime?
+
+  targetPrice  Decimal? @db.Decimal(20, 6)
+  currency     String   @default("USD") @db.VarChar(3)
+
+  // OPEN -> PARTIALLY_FULFILLED -> FULFILLED, or -> CANCELLED / EXPIRED.
+  // FULFILLED requires actual fulfilment (never mere proposals/commitments).
+  status       String   @default("OPEN") @db.VarChar(24)
+
+  aggregation  Aggregation?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+  @@index([buyerId])
+  @@index([category])
+  @@index([commodity])
+  @@index([location])
+  @@index([createdAt])
+
+  @@map("requirements")
+}
+
+// Aggregation opportunity: exactly one per Requirement (unique requirementId).
+// Tracks committed supply so demand cannot be over-committed under concurrency.
+model Aggregation {
+  id                String   @id @default(cuid())
+  requirementId     String   @unique
+  requirement       Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  // Sum of COMMITTED + FULFILLED contribution quantities. Guarded-updated so two
+  // concurrent commits cannot both pass the remaining-demand check.
+  committedQuantity Decimal  @db.Decimal(20, 6) @default(0)
+
+  // OPEN -> CLOSED (requirement fulfilled/cancelled) or CANCELLED.
+  status            String   @default("OPEN") @db.VarChar(24)
+
+  contributions     Contribution[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status])
+
+  @@map("aggregations")
+}
+
+// A seller's proposed supply toward one aggregation, drawn from a specific
+// listing. PROPOSED does NOT touch inventory; only COMMITTED reserves it.
+// One active (PROPOSED/COMMITTED/FULFILLED) contribution per listing per
+// aggregation is enforced in the service transaction (cancelled ones may be
+// re-proposed). unit must exactly match the requirement + listing unit.
+model Contribution {
+  id            String   @id @default(cuid())
+  aggregationId String
+  aggregation   Aggregation @relation(fields: [aggregationId], references: [id], onDelete: Cascade)
+
+  listingId     String
+  listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sellerId      String
+  seller        Profile  @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  quantity      Decimal  @db.Decimal(20, 6)
+  unit          String   @db.VarChar(32)
+
+  // PROPOSED -> COMMITTED -> FULFILLED, or PROPOSED/COMMITTED -> CANCELLED.
+  status        String   @default("PROPOSED") @db.VarChar(24)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([aggregationId])
+  @@index([listingId])
+  @@index([sellerId])
+  @@index([status])
+
+  @@map("contributions")
+}
+

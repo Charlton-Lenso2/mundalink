@@ -18,6 +18,14 @@ The backend verifies the token with Firebase Admin and uses ONLY the verified
 | Unknown resource | 404 |
 | Bad body/query | 400/422 |
 | State conflict (double transition, insufficient stock) | 409 |
+`A related record is missing or invalid` is a **400** produced only by a
+**write** (create/update) whose foreign-key reference is missing at write time
+(Prisma `P2003`). It is **never** returned by `GET /api/listings` (or any read) —
+a read cannot violate a foreign key. Reads reject bad input with a different
+`ValidationError` 400 (e.g. `sortBy must be one of createdAt, pricePerUnit,
+quantity`). Writes validate their references before touching the DB, so a
+`P2003` indicates a genuinely missing parent row (e.g. an offer for a listing
+that no longer exists), not a malformed query.
 
 ## Health
 
@@ -133,6 +141,102 @@ Deal statuses: `PENDING → CONFIRMED → COMPLETED`, or `→ CANCELLED` from
   Deal value = Σ (agreedQuantity × agreedPrice), Decimal-safe, summed per
   listing currency. Only global aggregates are exposed — never per-user
   breakdowns.
+
+## Notifications
+
+Notifications are derived from REAL domain events only — there is no create
+endpoint and clients cannot fabricate them. The offer/deal routes write a
+notification (best-effort) right after the matching audit-log entry, so the two
+never disagree about what happened. Recipient identity is always resolved
+server-side (the listing seller, the offer buyer, or the other deal
+participant) — never from the request body.
+
+Event → notification mapping:
+
+| Real event | Recipient | `type` |
+|---|---|---|
+| Offer created on a listing | listing seller | `OFFER_RECEIVED` |
+| Offer accepted | offer buyer | `OFFER_ACCEPTED` |
+| Offer declined | offer buyer | `OFFER_DECLINED` |
+| Offer withdrawn / expired | listing seller | `OFFER_WITHDRAWN` |
+| Deal `CONFIRMED` / `COMPLETED` / `CANCELLED` | the other deal participant | `DEAL_CONFIRMED` / `DEAL_COMPLETED` / `DEAL_CANCELLED` |
+
+- `GET /api/notifications/mine?limit=` (auth) → newest first for the caller,
+  with an unread count. `limit` is clamped to 1..100 (default 50).
+  ```json
+  { "data": {
+      "items": [ { "id", "recipientId", "entityType", "entityId", "type",
+                   "title", "body", "readAt", "createdAt" } ],
+      "unreadCount": 2 } }
+  ```
+  `entityType` is `offer` or `deal`; `entityId` links back to that entity so the
+  client can deep-link. Each item's `title`/`body` describe the real event.
+- `PATCH /api/notifications/:id/read` (auth, owner only) → mark one read
+  (idempotent; the original `readAt` is preserved). Outsider → 403; unknown
+  id → 404. Returns the updated notification.
+- `PATCH /api/notifications/read-all` (auth) → mark all of the caller's unread
+  notifications read. Returns `{ "data": { "updated": <count> } }`.
+
+Notifications are never hard-deleted; marking read is the only mutation. A
+notification write failure is swallowed so it can never break the offer/deal
+action that triggered it (the audit log remains the system of record).
+
+
+## Roles & authorization
+
+Roles are `OBSERVER` (default for every new profile), `SELLER`, `BUYER`, and
+`ADMIN`. Trading authorization is now **role-enforced** server-side, in addition
+to authentication and record-ownership checks. The acting role is read from the
+`profiles` table on every gated request; a client-supplied role is never trusted.
+Authorization is layered: `authenticate()` proves identity, `requireRole` proves
+the role permits the action, and ownership checks (in services/routes) prove the
+caller owns the record.
+
+| Role | Permitted |
+|---|---|
+| `OBSERVER` | Public reads (`GET /api/listings[/:id]`), health, own profile (`GET`/`PATCH /api/profile/me`). **No trading.** |
+| `BUYER` | OBSERVER capabilities + submit offers, manage own offers (`WITHDRAWN`/`EXPIRED`) and own deals. |
+| `SELLER` | OBSERVER capabilities + create/manage own listings, act on offers for those listings (`ACCEPTED`/`DECLINED`). |
+| `ADMIN` | Administration only (assign roles). **No special trading power**; admin access never bypasses transaction invariants. |
+
+Endpoint role requirements (mutating/trading):
+
+| Endpoint | Required role | Extra check |
+|---|---|---|
+| `POST /api/listings` | `SELLER` | owner = verified UID |
+| `PATCH /api/listings/:id` | `SELLER` | owner only (else 403) |
+| `POST /api/offers` | `BUYER` | listing `ACTIVE`, not own listing |
+| `PATCH /api/offers/:id/status` -> `ACCEPTED`/`DECLINED` | `SELLER` | listing owner only |
+| `PATCH /api/offers/:id/status` -> `WITHDRAWN`/`EXPIRED` | `BUYER` | offer buyer only |
+| `PATCH /api/deals/:id/status` | participant | buyer-or-seller of the deal + status state machine |
+
+Reads of a user own records (`/api/offers/mine`, `/api/deals/mine`,
+`/api/deals/:id/history`, `/api/notifications/*`) require authentication only and
+are scoped to the caller. Deal fulfilment transitions stay gated by
+participant-ownership and the status machine (not by role), so an `OBSERVER` can
+never enter a deal and all existing valid transitions are preserved.
+
+Role assignment (restricted; no self-service):
+- `PATCH /api/profile/me` accepts `role` **only** when the caller is already an
+  `ADMIN`; for everyone else `role` is stripped, so self-promotion is impossible.
+- The **first** `ADMIN` is provisioned out-of-band by an operator
+  (`npm run admin:promote`, see below).
+- An authorised **operator** assigns `BUYER`/`SELLER` (or `ADMIN`) to an existing
+  user with `npm run role:assign -- <firebaseUid-or-email> <ROLE>`. The target
+  must have signed in once (profile row exists). Every change is audit-logged
+  (`ROLE_ASSIGNED`). This is server-side only; there is no HTTP endpoint that
+  grants a role.
+
+Onboarding a new user: a new sign-in defaults to `OBSERVER` and can browse but
+not trade. An operator runs `role:assign` to grant `BUYER` and/or `SELLER` once
+the user is verified.
+
+Single-role model: a profile holds exactly one `role`. A user who both buys and
+sells is switched between `BUYER` and `SELLER` by an operator (smallest safe
+approach; no schema change). If simultaneous dual capability is required later,
+migrate `Profile.role String` to `roles String[]` (or a `ProfileRole` join
+table) via a reviewed, backward-compatible migration rather than allowing a
+second role today.
 
 ## First-admin bootstrap
 

@@ -15,11 +15,13 @@ const fetchMock = vi.fn<FetchFn>()
 
 let api: (typeof import('./apiClient'))['api']
 let ApiError: (typeof import('./apiClient'))['ApiError']
+let normalizeApiBaseUrl: (typeof import('./apiClient'))['normalizeApiBaseUrl']
 
 beforeAll(async () => {
   const mod = await import('./apiClient')
   api = mod.api
   ApiError = mod.ApiError
+  normalizeApiBaseUrl = mod.normalizeApiBaseUrl
 })
 
 beforeEach(() => {
@@ -40,6 +42,17 @@ const jsonResponse = (status: number, body: unknown, statusText = 'Status') =>
   })
 
 describe('URL building', () => {
+  it.each([
+    ['http://mundalink.test', 'http://mundalink.test'],
+    ['http://mundalink.test/api', 'http://mundalink.test'],
+    ['http://mundalink.test/api/api/', 'http://mundalink.test'],
+    ['  http://mundalink.test/api/  ', 'http://mundalink.test'],
+    ['', ''],
+    [undefined, ''],
+  ])('normalizes API base URL %s', (baseUrl, expected) => {
+    expect(normalizeApiBaseUrl(baseUrl)).toBe(expected)
+  })
+
   it('calls the backend with exactly one /api prefix', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(200, {
@@ -52,11 +65,34 @@ describe('URL building', () => {
     const url = String(fetchMock.mock.calls[0]?.[0])
     expect(url).toBe('http://mundalink.test/api/listings?page=1&limit=9')
     expect(url).not.toContain('/api/api/')
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBeUndefined()
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has('Content-Type')).toBe(false)
+  })
+
+  it('sends only supported listing filters and paging parameters', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        data: [],
+        meta: { page: 2, limit: 9, total: 10, totalPages: 2 },
+      }),
+    )
+    await api.listings.list({
+      search: 'white maize',
+      category: 'Cereals',
+      location: 'Mutoko',
+      status: 'ACTIVE',
+      page: 2,
+      limit: 9,
+    })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'http://mundalink.test/api/listings?search=white+maize&category=Cereals&location=Mutoko&status=ACTIVE&page=2&limit=9',
+    )
   })
 })
 
 describe('HTTP error mapping', () => {
   const cases = [
+    [400, 'A related record is missing or invalid'],
     [401, 'Authentication required'],
     [403, 'You cannot act on this listing'],
     [404, 'The requested resource no longer exists'],
@@ -111,6 +147,8 @@ describe('response envelope validation', () => {
     )
     const page = await api.listings.list()
     expect(page.items).toHaveLength(1)
+    expect(page.page).toBe(1)
+    expect(page.limit).toBe(9)
     expect(page.total).toBe(1)
     expect(page.totalPages).toBe(1)
   })

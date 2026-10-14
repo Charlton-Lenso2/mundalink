@@ -7,10 +7,12 @@ import { env } from "./config/env";
 import { requestIdMiddleware, errorHandler } from "./middleware/error-handler";
 import { healthHandler } from "./routes/health";
 import { profileRouter } from "./routes/profile";
+import { requirementsRouter, contributionsRouter } from "./routes/requirements";
 import { listingsRouter } from "./routes/listings";
 import { offersRouter } from "./routes/offers";
 import { dealsRouter } from "./routes/deals";
 import { analyticsRouter } from "./routes/analytics";
+import { notificationsRouter } from "./routes/notifications";
 
 export function createApp() {
   const app = express();
@@ -31,6 +33,9 @@ export function createApp() {
   app.use("/api/offers", offersRouter);
   app.use("/api/deals", dealsRouter);
   app.use("/api/analytics", analyticsRouter);
+  app.use("/api/notifications", notificationsRouter);
+  app.use("/api/requirements", requirementsRouter);
+  app.use("/api/contributions", contributionsRouter);
 
   app.use((_req, res) => {
     res.status(404).json({
