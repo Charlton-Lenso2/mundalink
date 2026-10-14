@@ -9,6 +9,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 vi.stubEnv('VITE_API_BASE_URL', 'http://mundalink.test/api')
 vi.stubEnv('VITE_USE_MOCK_API', 'false')
 
+// Authenticated apiClient calls read the Firebase current user for a token.
+// Stub a signed-in user so requireAuth paths send `Bearer test-token`.
+vi.mock('./firebase', () => ({
+  auth: { currentUser: { getIdToken: async () => 'test-token' } },
+}))
+
 type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 const fetchMock = vi.fn<FetchFn>()
@@ -172,5 +178,55 @@ describe('response envelope validation', () => {
       status: 502,
       message: 'The backend returned an invalid listings payload.',
     })
+  })
+})
+
+describe('requirements endpoints', () => {
+  it('fetches open requirements with filters on the public route', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        data: [{ id: 'req_1' }],
+        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+      }),
+    )
+    const page = await api.requirements.listOpen({ commodity: 'Maize', location: 'Lusaka', page: 1, limit: 20 })
+    expect(page.items).toHaveLength(1)
+    const url = String(fetchMock.mock.calls[0]?.[0])
+    expect(url).toContain('/api/requirements?')
+    expect(url).toContain('commodity=Maize')
+    expect(url).toContain('location=Lusaka')
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBeUndefined()
+  })
+
+  it('creates a requirement with an authenticated POST', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { data: { id: 'req_9', title: 'Need maize' } }))
+    const created = await api.requirements.create({ title: 'Need maize', quantity: '100', unit: 'kg' })
+    expect(created).toMatchObject({ id: 'req_9' })
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST')
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Authorization')).toMatch(/^Bearer /)
+  })
+
+  it('proposes supply against a requirement with listing and quantity', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { data: { id: 'ctr_1', status: 'PROPOSED' } }))
+    const contribution = await api.requirements.propose('req_1', { listingId: 'lst_a', quantity: '20' })
+    expect(contribution).toMatchObject({ status: 'PROPOSED' })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/api/requirements/req_1/contributions')
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain('lst_a')
+  })
+})
+
+describe('notifications endpoints', () => {
+  it('fetches my notifications with an unread count', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { data: { items: [{ id: 'n1' }], unreadCount: 1 } }))
+    const result = await api.notifications.mine(50)
+    expect(result.unreadCount).toBe(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/api/notifications/mine?limit=50')
+  })
+
+  it('marks all notifications read with an authenticated PATCH', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { data: { updated: 3 } }))
+    const result = await api.notifications.markAllRead()
+    expect(result.updated).toBe(3)
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('PATCH')
   })
 })

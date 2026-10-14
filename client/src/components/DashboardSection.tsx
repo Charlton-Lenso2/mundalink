@@ -131,7 +131,7 @@ export function DashboardSection({
           <div>
             <span className="eyebrow">Buyer workspace</span>
             <h3>Organise demand before you source</h3>
-            <p>Draft a produce requirement with a clear quantity, unit, location, and date. Requirement services are not connected yet.</p>
+            <p>Draft a produce requirement with a clear quantity, unit, location, and date. Sellers propose supply; you confirm and record delivery.</p>
           </div>
           <button type="button" className="secondary-button" onClick={onOpenRequirements}>Open buyer requirements</button>
         </div>
@@ -141,7 +141,7 @@ export function DashboardSection({
           <div>
             <span className="eyebrow">Seller workspace</span>
             <h3>Discover buyer demand</h3>
-            <p>Aggregation matching is not connected yet; no buyer demand or reserved inventory is implied.</p>
+            <p>Browse open buyer demand and propose supply from your listings. Only buyer-confirmed quantities reserve inventory.</p>
           </div>
           <button type="button" className="secondary-button" onClick={onOpenAggregation}>View aggregation opportunities</button>
         </div>

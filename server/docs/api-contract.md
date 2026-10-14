@@ -124,6 +124,90 @@ Deal statuses: `PENDING → CONFIRMED → COMPLETED`, or `→ CANCELLED` from
     `payload` and therefore appears in `/deals/:id/history` — use it to explain
     cancellations or note delivery issues. Invalid `reason` → 400.
 
+## Buyer requirements & produce aggregation
+
+A buyer posts what they want to buy (`Requirement`, status `OPEN`); sellers
+propose supply from their own listings (`Contribution`); the buyer binds
+proposals (`COMMITTED`, reserving inventory + demand) and records delivery
+(`FULFILLED`). Each requirement owns exactly one `Aggregation` that tracks
+committed supply so demand cannot be over-committed under concurrency.
+
+Requirement statuses: `OPEN → PARTIALLY_FULFILLED → FULFILLED`, or
+`→ CANCELLED` from `OPEN`/`PARTIALLY_FULFILLED`. `FULFILLED` requires actual
+delivery of the full quantity — never mere proposals or commitments.
+`EXPIRED` is reserved (e.g. `neededBy` passed) and is not set via the API.
+Contribution statuses: `PROPOSED → COMMITTED → FULFILLED`, or
+`PROPOSED | COMMITTED → CANCELLED`. `PROPOSED` is non-binding: it never
+touches inventory or committed totals; only `COMMITTED` reserves stock.
+
+Units are free text and combine only on EXACT match — no conversion. The
+contribution unit must equal the requirement unit and the listing unit.
+Money/quantities are decimal strings (`NUMERIC(20,6)`). Ownership is always
+resolved server-side from the verified Firebase UID (never the body); status
+changes are server-driven.
+
+- `POST /api/requirements` (auth, `BUYER`) — body
+  `{ title*, quantity*>0, unit*, description?, qualityNotes?, category?,
+     commodity?, location?, neededBy? (ISO date), targetPrice?>=0,
+     currency?=USD (3-letter) }`.
+  `buyerId` is forced from the token. Creates `OPEN` with exactly one
+  `Aggregation` in one transaction → 201 `{ data: Requirement }`.
+- `GET /api/requirements?commodity=&category=&location=&unit=&neededByFrom=&page=&limit=`
+  (public) → `{ data: Requirement[], meta: { page, limit, total, totalPages } }`.
+  Only `OPEN`/`PARTIALLY_FULFILLED` rows; discovery never exposes private
+  buyer contact details. Invalid `neededByFrom` → 400.
+- `GET /api/requirements/mine` (auth) — my requirements in any status,
+  with paging meta.
+- `GET /api/requirements/:id` (auth) — owner sees any status; anyone else
+  sees only `OPEN`/`PARTIALLY_FULFILLED` (else 404). 404 for unknown ids.
+- `PATCH /api/requirements/:id` (auth, `BUYER` owner, `OPEN` only) — editable:
+  `title`, `description`, `qualityNotes`, `category`, `commodity`, `unit`,
+  `quantity`, `targetPrice`, `location`, `neededBy`, `currency`.
+  Non-owner → 403; non-`OPEN` → 400.
+- `POST /api/requirements/:id/cancel` (auth, `BUYER` owner) — allowed from
+  `OPEN`/`PARTIALLY_FULFILLED` only while committed supply is zero
+  (cancel committed contributions first → else 409). Remaining `PROPOSED`
+  contributions are voided; the aggregation is closed.
+- `GET /api/requirements/:id/aggregation` (auth) — derived totals plus
+  contributions for participants (buyer owner or contributing sellers):
+  ```json
+  { "data": { "aggregationId", "requirementId", "requirementStatus",
+      "aggregationStatus", "requiredQuantity", "unit",
+      "committedSupply", "fulfilledQuantity", "remainingDemand",
+      "contributions": [ { "id", "aggregationId", "listingId", "sellerId",
+        "sellerName?", "listingTitle?", "quantity", "unit", "status",
+        "createdAt", "updatedAt" } ] } }
+  ```
+  Outsider → 404 (not disclosed); unknown id → 404.
+- `POST /api/requirements/:id/contributions` (auth, `SELLER`) — propose a
+  quantity from my own `ACTIVE` listing: body `{ listingId*, quantity*>0 }`.
+  Rules: listing owned by caller (403 otherwise); `ACTIVE` only;
+  exact unit match (400); quantity ≤ available inventory (409);
+  quantity ≤ remaining demand (409); one active
+  (`PROPOSED`/`COMMITTED`/`FULFILLED`) contribution per listing per
+  aggregation (409). Non-binding → 201 `{ data: Contribution }`.
+- `POST /api/contributions/:id/commit` (auth, `BUYER` requirement owner) —
+  the binding step. Runs in one transaction: claim `PROPOSED` →
+  guarded inventory decrement (`available >= qty`, else 409 + rollback) +
+  listing-mirror decrement + guarded demand increment
+  (`committedQuantity <= required - qty`, else 409 + rollback) →
+  requirement `OPEN → PARTIALLY_FULFILLED`. Concurrent commits serialize;
+  exactly one wins. Retrying a committed contribution → 409 (no double
+  reserve). Non-owner → 403.
+- `POST /api/contributions/:id/fulfil` (auth, `BUYER` requirement owner) —
+  record delivery of a `COMMITTED` contribution (no inventory change —
+  stock was reserved at commit). When fulfilled supply reaches the required
+  quantity → requirement `FULFILLED` and aggregation `CLOSED`.
+  Duplicate fulfil → 409; non-owner → 403.
+- `POST /api/contributions/:id/cancel` (auth) — `PROPOSED`: owning seller
+  only (no inventory/demand effect); `COMMITTED`: requirement owner only
+  (restores inventory + releases demand; requirement re-opens to `OPEN`
+  when no committed supply remains). `FULFILLED` can never be cancelled
+  (400); already-`CANCELLED` → 409.
+
+There is no contribution-activity history endpoint; use the aggregation view
+for current totals and contribution states.
+
 ## Analytics
 
 - `GET /api/analytics/summary` (auth) → global platform aggregates computed
@@ -209,6 +293,17 @@ Endpoint role requirements (mutating/trading):
 | `PATCH /api/offers/:id/status` -> `ACCEPTED`/`DECLINED` | `SELLER` | listing owner only |
 | `PATCH /api/offers/:id/status` -> `WITHDRAWN`/`EXPIRED` | `BUYER` | offer buyer only |
 | `PATCH /api/deals/:id/status` | participant | buyer-or-seller of the deal + status state machine |
+| `POST /api/requirements` | `BUYER` | buyer = verified UID |
+| `PATCH /api/requirements/:id` | `BUYER` | owner only, `OPEN` only (else 403/400) |
+| `POST /api/requirements/:id/cancel` | `BUYER` | owner only, no committed supply (else 403/409) |
+| `POST /api/requirements/:id/contributions` | `SELLER` | own `ACTIVE` listing, exact unit match |
+| `POST /api/contributions/:id/commit` | `BUYER` | requirement owner only (else 403) |
+| `POST /api/contributions/:id/fulfil` | `BUYER` | requirement owner only (else 403) |
+| `POST /api/contributions/:id/cancel` | `PROPOSED`: owning seller; `COMMITTED`: requirement owner | enforced per-branch in the service |
+
+Reads of a user's own requirements (`/api/requirements/mine`,
+`/api/requirements/:id` for the owner, `/api/requirements/:id/aggregation`
+for participants) require authentication only and are scoped to the caller.
 
 Reads of a user own records (`/api/offers/mine`, `/api/deals/mine`,
 `/api/deals/:id/history`, `/api/notifications/*`) require authentication only and

@@ -1,6 +1,18 @@
 import { auth } from './firebase'
 import { mockDeals, mockListings, mockOffers, mockProfile } from '../data/mock-data'
-import type { ApiHealthResponse, Deal, DealStatus, Listing, Offer, OfferStatus, Profile } from '../types'
+import type {
+  AggregationView,
+  ApiHealthResponse,
+  Contribution,
+  Deal,
+  DealStatus,
+  Listing,
+  Notification,
+  Offer,
+  OfferStatus,
+  Profile,
+  Requirement,
+} from '../types'
 
 export function normalizeApiBaseUrl(baseUrl: string | undefined): string {
   return (baseUrl ?? '').trim().replace(/\/+$/, '').replace(/(?:\/api)+$/i, '')
@@ -316,6 +328,116 @@ export const api = {
         return target ?? null
       }
       return request<Deal>(`/deals/${dealId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }, true)
+    },
+  },
+
+  requirements: {
+    listOpen: async (filters?: {
+      commodity?: string
+      category?: string
+      location?: string
+      unit?: string
+      neededByFrom?: string
+      page?: number
+      limit?: number
+    }): Promise<Paged<Requirement>> => {
+      if (isMockForced || !apiBaseUrl) {
+        return { items: [], page: filters?.page ?? 1, limit: filters?.limit ?? 20, total: 0, totalPages: 1 }
+      }
+      const params = new URLSearchParams()
+      if (filters?.commodity) params.set('commodity', filters.commodity)
+      if (filters?.category) params.set('category', filters.category)
+      if (filters?.location) params.set('location', filters.location)
+      if (filters?.unit) params.set('unit', filters.unit)
+      if (filters?.neededByFrom) params.set('neededByFrom', filters.neededByFrom)
+      if (filters?.page !== undefined) params.set('page', String(filters.page))
+      if (filters?.limit !== undefined) params.set('limit', String(filters.limit))
+      const query = params.toString()
+      return paged<Requirement>(`/requirements${query ? `?${query}` : ''}`)
+    },
+    mine: async (page = 1, limit = 20): Promise<Paged<Requirement>> => {
+      if (isMockForced || !apiBaseUrl) {
+        return { items: [], page, limit, total: 0, totalPages: 1 }
+      }
+      return paged<Requirement>(`/requirements/mine?page=${page}&limit=${limit}`, {}, true)
+    },
+    get: async (id: string): Promise<Requirement> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Requirement>(`/requirements/${id}`, {}, true)
+    },
+    create: async (payload: {
+      title: string
+      quantity: string
+      unit: string
+      description?: string | null
+      qualityNotes?: string | null
+      category?: string | null
+      commodity?: string | null
+      location?: string | null
+      neededBy?: string | null
+      targetPrice?: string | null
+      currency?: string
+    }): Promise<Requirement> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Requirement>('/requirements', { method: 'POST', body: JSON.stringify(payload) }, true)
+    },
+    update: async (id: string, payload: Partial<{
+      title: string
+      description: string | null
+      qualityNotes: string | null
+      category: string | null
+      commodity: string | null
+      unit: string
+      quantity: string
+      targetPrice: string | null
+      location: string | null
+      neededBy: string | null
+      currency: string
+    }>): Promise<Requirement> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Requirement>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }, true)
+    },
+    cancel: async (id: string): Promise<Requirement> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Requirement>(`/requirements/${id}/cancel`, { method: 'POST' }, true)
+    },
+    aggregation: async (id: string): Promise<AggregationView> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<AggregationView>(`/requirements/${id}/aggregation`, {}, true)
+    },
+    propose: async (requirementId: string, payload: { listingId: string; quantity: string }): Promise<Contribution> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Contribution>(`/requirements/${requirementId}/contributions`, { method: 'POST', body: JSON.stringify(payload) }, true)
+    },
+  },
+
+  contributions: {
+    commit: async (id: string): Promise<Contribution> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Contribution>(`/contributions/${id}/commit`, { method: 'POST' }, true)
+    },
+    fulfil: async (id: string): Promise<Contribution> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Contribution>(`/contributions/${id}/fulfil`, { method: 'POST' }, true)
+    },
+    cancel: async (id: string): Promise<Contribution> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Contribution>(`/contributions/${id}/cancel`, { method: 'POST' }, true)
+    },
+  },
+
+  notifications: {
+    mine: async (limit = 50): Promise<{ items: Notification[]; unreadCount: number }> => {
+      if (isMockForced || !apiBaseUrl) return { items: [], unreadCount: 0 }
+      return request<{ items: Notification[]; unreadCount: number }>(`/notifications/mine?limit=${limit}`, {}, true)
+    },
+    markRead: async (id: string): Promise<Notification> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<Notification>(`/notifications/${id}/read`, { method: 'PATCH' }, true)
+    },
+    markAllRead: async (): Promise<{ updated: number }> => {
+      if (isMockForced || !apiBaseUrl) throw new ApiError('Live backend is not configured', 0)
+      return request<{ updated: number }>('/notifications/read-all', { method: 'PATCH' }, true)
     },
   },
 }

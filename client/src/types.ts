@@ -81,6 +81,77 @@ export interface Profile {
   updatedAt?: string
 }
 
+export type RequirementStatus = 'OPEN' | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED' | 'EXPIRED'
+export type ContributionStatus = 'PROPOSED' | 'COMMITTED' | 'FULFILLED' | 'CANCELLED'
+
+export interface Requirement {
+  id: string
+  buyerId: string
+  buyerName?: string
+  title: string
+  description: string | null
+  qualityNotes: string | null
+  category: string | null
+  commodity: string | null
+  quantity: string
+  unit: string
+  location: string | null
+  neededBy: string | null
+  targetPrice: string | null
+  currency: string
+  status: RequirementStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Contribution {
+  id: string
+  aggregationId: string
+  listingId: string
+  sellerId: string
+  sellerName?: string
+  listingTitle?: string
+  quantity: string
+  unit: string
+  status: ContributionStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AggregationView {
+  aggregationId: string
+  requirementId: string
+  requirementStatus: string
+  aggregationStatus: string
+  requiredQuantity: string
+  unit: string
+  committedSupply: string
+  fulfilledQuantity: string
+  remainingDemand: string
+  contributions: Contribution[]
+}
+
+export type NotificationType =
+  | 'OFFER_RECEIVED'
+  | 'OFFER_ACCEPTED'
+  | 'OFFER_DECLINED'
+  | 'OFFER_WITHDRAWN'
+  | 'DEAL_CONFIRMED'
+  | 'DEAL_COMPLETED'
+  | 'DEAL_CANCELLED'
+
+export interface Notification {
+  id: string
+  recipientId: string
+  entityType: 'offer' | 'deal'
+  entityId: string
+  type: NotificationType
+  title: string
+  body: string | null
+  readAt: string | null
+  createdAt: string
+}
+
 export interface ApiHealthResponse {
   ok: boolean
   status: string

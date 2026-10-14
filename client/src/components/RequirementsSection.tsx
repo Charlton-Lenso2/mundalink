@@ -1,14 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { ApiError, api } from '../lib/apiClient'
 import { validateRequirementDraft, type RequirementDraft, type RequirementDraftErrors } from '../lib/requirementFeatures'
+import type { ContributionStatus, Requirement, RequirementStatus } from '../types'
 
-export type RequirementStatus =
-  | 'OPEN'
-  | 'PARTIALLY_FULFILLED'
-  | 'FULFILLED'
-  | 'CANCELLED'
-  | 'EXPIRED'
-
-export type ContributionStatus = 'PROPOSED' | 'COMMITTED' | 'FULFILLED' | 'CANCELLED'
+export type { ContributionStatus, RequirementStatus }
 
 export interface RequirementSummary {
   id: string
@@ -25,6 +20,25 @@ export interface RequirementSummary {
   remainingDemand: string
   description: string | null
   qualityNotes: string | null
+}
+
+export function toRequirementSummary(requirement: Requirement, committedSupply = '0', remainingDemand?: string): RequirementSummary {
+  return {
+    id: requirement.id,
+    title: requirement.title,
+    commodity: requirement.commodity,
+    quantity: requirement.quantity,
+    unit: requirement.unit,
+    location: requirement.location,
+    neededBy: requirement.neededBy,
+    targetPrice: requirement.targetPrice,
+    currency: requirement.currency,
+    status: requirement.status,
+    committedSupply,
+    remainingDemand: remainingDemand ?? requirement.quantity,
+    description: requirement.description,
+    qualityNotes: requirement.qualityNotes,
+  }
 }
 
 const statusCopy: Record<RequirementStatus, string> = {
@@ -150,7 +164,39 @@ export function RequirementDetails({ requirement }: { requirement: RequirementSu
 }
 
 export function BuyerRequirementsSection() {
+  const [records, setRecords] = useState<RequirementSummary[] | null>(null)
+  const [recordsLoading, setRecordsLoading] = useState(false)
+  const [recordsError, setRecordsError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [backendAvailable, setBackendAvailable] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadMine() {
+      setRecordsLoading(true)
+      setRecordsError(null)
+      try {
+        const page = await api.requirements.mine(1, 20)
+        if (cancelled) return
+        setBackendAvailable(true)
+        setRecords(page.items.map((r) => toRequirementSummary(r)))
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 0) {
+          setBackendAvailable(false)
+          setRecords(null)
+        } else {
+          setRecordsError(err instanceof Error ? err.message : 'Could not load your requirements.')
+        }
+      } finally {
+        if (!cancelled) setRecordsLoading(false)
+      }
+    }
+    void loadMine()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   if (showForm) {
     return (
@@ -159,7 +205,31 @@ export function BuyerRequirementsSection() {
           <div><span className="eyebrow">Buyer workspace</span><h2>New requirement</h2></div>
           <button type="button" className="ghost-button" onClick={() => setShowForm(false)}>Back to requirements</button>
         </div>
-        <RequirementFormPreview onCancel={() => setShowForm(false)} />
+        <RequirementFormPanel
+          onCreated={(created) => {
+            setRecords((current) => (current ? [toRequirementSummary(created), ...current] : [toRequirementSummary(created)]))
+            setShowForm(false)
+          }}
+        />
+        <RequirementStatusGuide />
+      </section>
+    )
+  }
+
+  if (!backendAvailable) {
+    return (
+      <section className="screen requirement-screen">
+        <div className="section-header">
+          <div>
+            <span className="eyebrow">Buyer workspace</span>
+            <h2>Buyer requirements</h2>
+            <p>Describe the produce, quantity, unit, location, and timing you need.</p>
+          </div>
+        </div>
+        <FeatureUnavailableNotice
+          title="Requirement records are not connected"
+          description="The requirement records panel needs a live backend connection before it can confirm your demand. Server-side quantities and totals are never guessed."
+        />
         <RequirementStatusGuide />
       </section>
     )
@@ -178,35 +248,29 @@ export function BuyerRequirementsSection() {
         </button>
       </div>
 
-      <FeatureUnavailableNotice
-        title="Requirement records are not connected"
-        description="Requirement routes have appeared in the server worktree, but the API contract and route/service signatures are not aligned yet. MundaLink is not querying or creating records here."
-      />
-
-      <div className="requirement-filters" aria-label="Requirement search and filters">
-        <label>
-          Search requirements
-          <input type="search" placeholder="Search produce or location" disabled aria-describedby="requirements-filter-note" />
-        </label>
-        <label>
-          Status
-          <select disabled aria-describedby="requirements-filter-note" defaultValue="">
-            <option value="">All statuses</option>
-          </select>
-        </label>
-        <p id="requirements-filter-note">Search and status filters will be available when the API supports requirement discovery.</p>
-      </div>
-
-      <div className="empty-state requirement-empty" role="status">
-        <h3>Your requirements have not been loaded</h3>
-        <p>This is not an empty-account result. The client cannot check whether you have saved requirements until the backend exposes the required endpoints.</p>
-      </div>
+      {recordsLoading ? <div className="empty-state" role="status">Loading your requirements…</div> : null}
+      {recordsError ? <div className="notice error" role="alert">{recordsError}</div> : null}
+      {!recordsLoading && !recordsError && records !== null && records.length === 0 ? (
+        <div className="empty-state requirement-empty" role="status">
+          <h3>No requirements yet</h3>
+          <p>Draft your first requirement above — it opens at status OPEN for sellers to propose supply.</p>
+        </div>
+      ) : null}
+      {!recordsLoading && records !== null && records.length > 0 ? (
+        <div className="stack-list" role="list" aria-label="Your requirements">
+          {records.map((requirement) => (
+            <div key={requirement.id} role="listitem">
+              <RequirementDetails requirement={requirement} />
+            </div>
+          ))}
+        </div>
+      ) : null}
       <RequirementStatusGuide />
     </section>
   )
 }
 
-function RequirementFormPreview({ onCancel }: { onCancel: () => void }) {
+function RequirementFormPanel({ onCreated }: { onCreated: (created: Requirement) => void }) {
   const [draft, setDraft] = useState<RequirementDraft>({
     title: '',
     commodity: '',
@@ -220,7 +284,8 @@ function RequirementFormPreview({ onCancel }: { onCancel: () => void }) {
     qualityNotes: '',
   })
   const [errors, setErrors] = useState<RequirementDraftErrors>({})
-  const [validationComplete, setValidationComplete] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const fields: { key: keyof RequirementDraft; label: string; type?: string; placeholder?: string }[] = [
     { key: 'title', label: 'Requirement title', placeholder: 'e.g. Supply for a school feeding programme' },
     { key: 'commodity', label: 'Produce or commodity', placeholder: 'e.g. white maize' },
@@ -238,16 +303,37 @@ function RequirementFormPreview({ onCancel }: { onCancel: () => void }) {
     event.preventDefault()
     const nextErrors = validateRequirementDraft(draft)
     setErrors(nextErrors)
-    setValidationComplete(true)
+    if (Object.keys(nextErrors).length > 0) return
+    setSubmitting(true)
+    setServerError(null)
+    void api.requirements.create({
+      title: draft.title.trim(),
+      quantity: draft.quantity.trim(),
+      unit: draft.unit.trim(),
+      description: draft.description.trim() || null,
+      qualityNotes: draft.qualityNotes.trim() || null,
+      category: null,
+      commodity: draft.commodity.trim() || null,
+      location: draft.location.trim() || null,
+      neededBy: draft.neededBy.trim() || null,
+      targetPrice: draft.targetPrice.trim() || null,
+      currency: draft.currency.trim() || 'USD',
+    }).then(
+      (created) => {
+        setSubmitting(false)
+        onCreated(created)
+      },
+      (err: unknown) => {
+        setSubmitting(false)
+        setServerError(err instanceof Error ? err.message : 'Could not save the requirement.')
+      },
+    )
   }
 
   return (
     <div className="requirement-form-panel">
-      <div className="feature-preview-note" role="status">
-        You can check the draft locally. Saving is unavailable because no requirement endpoint is documented or mounted.
-      </div>
-      <form onSubmit={handleSubmit} aria-label="Requirement form preview">
-        <fieldset>
+      <form onSubmit={handleSubmit} aria-label="Requirement form">
+        <fieldset disabled={submitting}>
           <legend>Requirement information</legend>
           <div className="requirement-form-grid">
             {fields.map((field) => (
@@ -278,13 +364,11 @@ function RequirementFormPreview({ onCancel }: { onCancel: () => void }) {
             ))}
           </div>
         </fieldset>
-        {validationComplete && Object.keys(errors).length === 0 ? (
-          <p className="requirement-validation-success" role="status">The draft passes local checks. It has not been saved or sent to the backend.</p>
-        ) : null}
+        {serverError ? <div className="notice error" role="alert">{serverError}</div> : null}
         <div className="requirement-form-actions">
-          <button type="button" className="ghost-button" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="secondary-button">Check draft</button>
-          <button type="submit" className="primary-button" disabled>Save requirement — unavailable</button>
+          <button type="submit" className="primary-button" disabled={submitting}>
+            {submitting ? 'Saving…' : 'Save requirement'}
+          </button>
         </div>
       </form>
     </div>
@@ -292,6 +376,66 @@ function RequirementFormPreview({ onCancel }: { onCancel: () => void }) {
 }
 
 export function SellerAggregationSection({ onBrowseMarketplace }: { onBrowseMarketplace: () => void }) {
+  const [filters, setFilters] = useState({ commodity: '', location: '', unit: '' })
+  const [applied, setApplied] = useState({ commodity: '', location: '', unit: '' })
+  const [records, setRecords] = useState<RequirementSummary[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [backendAvailable, setBackendAvailable] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadOpen() {
+      setLoading(true)
+      setError(null)
+      try {
+        const page = await api.requirements.listOpen({
+          commodity: applied.commodity || undefined,
+          location: applied.location || undefined,
+          unit: applied.unit || undefined,
+          page: 1,
+          limit: 20,
+        })
+        if (cancelled) return
+        setBackendAvailable(true)
+        setRecords(page.items.map((r) => toRequirementSummary(r)))
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 0) {
+          setBackendAvailable(false)
+          setRecords(null)
+        } else {
+          setError(err instanceof Error ? err.message : 'Could not load open requirements.')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void loadOpen()
+    return () => {
+      cancelled = true
+    }
+  }, [applied])
+
+  if (!backendAvailable) {
+    return (
+      <section className="screen requirement-screen">
+        <div className="section-header">
+          <div>
+            <span className="eyebrow">Seller workspace</span>
+            <h2>Aggregation opportunities</h2>
+            <p>Explore buyer demand that could match produce you have listed.</p>
+          </div>
+        </div>
+        <FeatureUnavailableNotice
+          title="Matching opportunities cannot be checked yet"
+          description="The client needs a live backend connection before it can confirm buyer demand. No demand, inventory, or totals are guessed."
+        />
+        <ContributionStatusGuide />
+      </section>
+    )
+  }
+
   return (
     <section className="screen requirement-screen">
       <div className="section-header">
@@ -302,54 +446,150 @@ export function SellerAggregationSection({ onBrowseMarketplace }: { onBrowseMark
         </div>
       </div>
 
-      <FeatureUnavailableNotice
-        title="Matching opportunities cannot be checked yet"
-        description="Requirement and contribution routes have appeared in the server worktree, but their API contract and current route/service signatures need alignment. No matching requirements, inventory, or demand totals are being shown."
-      />
-
-      <div className="requirement-filters" aria-label="Opportunity search and filters">
+      <form
+        className="requirement-filters"
+        aria-label="Opportunity search and filters"
+        onSubmit={(event) => {
+          event.preventDefault()
+          setApplied({ ...filters })
+        }}
+      >
         <label>
           Search produce
-          <input type="search" placeholder="Commodity or product" disabled />
+          <input
+            type="search"
+            placeholder="Commodity or product"
+            value={filters.commodity}
+            onChange={(event) => setFilters((current) => ({ ...current, commodity: event.target.value }))}
+          />
         </label>
         <label>
           Location
-          <input type="text" placeholder="District or town" disabled />
+          <input
+            type="text"
+            placeholder="District or town"
+            value={filters.location}
+            onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
+          />
         </label>
         <label>
           Unit
-          <input type="text" placeholder="Match the requested unit" disabled />
+          <input
+            type="text"
+            placeholder="Match the requested unit"
+            value={filters.unit}
+            onChange={(event) => setFilters((current) => ({ ...current, unit: event.target.value }))}
+          />
         </label>
-      </div>
+        <p>
+          <button type="submit" className="secondary-button">Search demand</button>
+        </p>
+      </form>
 
-      <div className="empty-state requirement-empty" role="status">
-        <h3>No live opportunity result is available</h3>
-        <p>This does not mean there are no buyers looking for produce. The client cannot query or confirm demand yet.</p>
-        <button type="button" className="secondary-button" onClick={onBrowseMarketplace}>Browse the marketplace</button>
-      </div>
-
-      <section className="contribution-preview-panel" aria-labelledby="contribution-preview-title">
-        <div>
-          <span className="eyebrow">Contribution workflow</span>
-          <h3 id="contribution-preview-title">Only API-confirmed quantities count</h3>
-          <p>Once the backend contract and handlers are verified, sellers can choose an eligible listing and enter a quantity in the requirement's exact unit. Inventory and remaining demand must come from the server.</p>
-          <p>Contribution activity history is not available in the current API contract.</p>
+      {loading ? <div className="empty-state" role="status">Checking buyer demand…</div> : null}
+      {error ? <div className="notice error" role="alert">{error}</div> : null}
+      {!loading && !error && records !== null && records.length === 0 ? (
+        <div className="empty-state requirement-empty" role="status">
+          <h3>No matching open demand</h3>
+          <p>No OPEN or PARTIALLY_FULFILLED requirements match these filters right now.</p>
+          <button type="button" className="secondary-button" onClick={onBrowseMarketplace}>Browse the marketplace</button>
         </div>
-        <fieldset disabled className="contribution-form-preview">
-          <legend>Contribution form preview — unavailable</legend>
-          <label>
-            Your eligible listing
-            <select defaultValue=""><option value="">Listings will load from your account</option></select>
-          </label>
-          <label>
-            Quantity to propose
-            <input type="number" min="0" placeholder="Enter quantity in the matching unit" />
-          </label>
-          <button type="button" className="primary-button" disabled>Continue — unavailable</button>
-        </fieldset>
-      </section>
+      ) : null}
+      {!loading && records !== null && records.length > 0 ? (
+        <div className="stack-list" role="list" aria-label="Open buyer demand">
+          {records.map((requirement) => (
+            <div key={requirement.id} role="listitem">
+              <RequirementDetails requirement={requirement} />
+              <ProposeContributionForm requirementId={requirement.id} unit={requirement.unit} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <ContributionStatusGuide />
     </section>
+  )
+}
+
+function ProposeContributionForm({ requirementId, unit }: { requirementId: string; unit: string }) {
+  const [listings, setListings] = useState<{ id: string; title: string }[]>([])
+  const [listingId, setListingId] = useState('')
+  const [quantity, setQuantity] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadListings() {
+      try {
+        const page = await api.listings.list({ limit: 50 })
+        if (cancelled) return
+        setListings(page.items.map((l) => ({ id: l.id, title: l.title })))
+      } catch {
+        if (!cancelled) setListings([])
+      }
+    }
+    void loadListings()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!listingId) {
+      setFormError('Choose one of your listings.')
+      return
+    }
+    if (!quantity || Number(quantity) <= 0) {
+      setFormError('Enter a quantity greater than zero.')
+      return
+    }
+    setSubmitting(true)
+    setFormError(null)
+    setMessage(null)
+    void api.requirements.propose(requirementId, { listingId, quantity }).then(
+      () => {
+        setSubmitting(false)
+        setMessage(`Proposal recorded for ${quantity} ${unit}. The buyer confirms it before anything is reserved.`)
+        setQuantity('')
+      },
+      (err: unknown) => {
+        setSubmitting(false)
+        setFormError(err instanceof Error ? err.message : 'Could not record the proposal.')
+      },
+    )
+  }
+
+  return (
+    <form className="contribution-form-preview" aria-label={`Propose supply for requirement ${requirementId}`} onSubmit={handleSubmit}>
+      <label>
+        Your eligible listing
+        <select value={listingId} onChange={(event) => setListingId(event.target.value)}>
+          <option value="">Choose a listing</option>
+          {listings.map((listing) => (
+            <option key={listing.id} value={listing.id}>{listing.title}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Quantity to propose (in {unit} — exact match, no conversion)
+        <input
+          type="number"
+          min="0"
+          step="any"
+          value={quantity}
+          onChange={(event) => setQuantity(event.target.value)}
+          placeholder={`Enter quantity in ${unit}`}
+        />
+      </label>
+      {formError ? <div className="notice error" role="alert">{formError}</div> : null}
+      {message ? <div className="requirement-validation-success" role="status">{message}</div> : null}
+      <button type="submit" className="primary-button" disabled={submitting}>
+        {submitting ? 'Recording…' : 'Propose supply'}
+      </button>
+    </form>
   )
 }
 
